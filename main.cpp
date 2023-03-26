@@ -23,7 +23,7 @@
 const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
 
 //wifi access point configuration
-const char* getWiFiAccessPointSsid() { const char* result = "RaidAlarm"; return result; };
+const char* getWiFiAccessPointSsid() { const char* result = "Raid Monitor"; return result; };
 const char* getWiFiAccessPointPassword() { const char* result = "12345678"; return result; };
 const IPAddress getWiFiAccessPointIp() { IPAddress result( 192, 168, 1, 1 ); return result; };
 const IPAddress getWiFiAccessPointNetMask() { IPAddress result( 255, 255, 255, 0 ); return result; };
@@ -152,7 +152,7 @@ const std::vector<std::vector<const char*>> getVkRegions() {
 //al raid alarm server-specific config
 const char* getAcRaidAlarmServerName() { const char* result = "tcp.alerts.com.ua"; return result; };
 const uint16_t getAcRaidAlarmServerPort() { const uint16_t result = 1024; return result; };
-const char* getAcRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
+const char* getAcRaidAlarmServerApiKey() { const char* result = "API-KEY"; return result; };
 const uint16_t DELAY_AC_WIFI_CONNECTION_CHECK = 15000; //wifi connection check frequency in ms
 
 //mapping for 40x30 board
@@ -221,7 +221,7 @@ const std::vector<std::vector<const char*>> getAcRegions() {
 
 //ai raid alarm server-specific config
 const char* getAiRaidAlarmServerUrl() { const char* result = "https://api.alerts.in.ua/v1/iot/active_air_raid_alerts_by_oblast.json"; return result; };
-const char* getAiRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
+const char* getAiRaidAlarmServerApiKey() { const char* result = "API-KEY"; return result; };
 const uint16_t DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 15000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
 
 //response example: "ANNNNNNNNNNNANNNNNNNNNNNNNN"
@@ -297,7 +297,8 @@ const std::vector<std::vector<const char*>> getAiRegions() {
 
 //connection settings
 const uint16_t TIMEOUT_HTTP_CONNECTION = 10000;
-const uint16_t TIMEOUT_TCP_CONNECTION = 30000;
+const uint16_t TIMEOUT_TCP_CONNECTION_SHORT = 10000;
+const uint16_t TIMEOUT_TCP_CONNECTION_LONG = 30000;
 const uint16_t TIMEOUT_TCP_SERVER_DATA = 60000; //if server does not send anything within this amount of time, the connection is believed to be stalled
 
 
@@ -313,6 +314,7 @@ uint8_t statusLedColor = STRIP_STATUS_OK;
 uint8_t stripLedBrightnessDimmingNight = 255;
 bool isNightMode = false;
 bool isNightModeTest = false;
+bool stripPartyMode = false;
 
 const int8_t RAID_ALARM_STATUS_UNINITIALIZED = -1;
 const int8_t RAID_ALARM_STATUS_INACTIVE = 0;
@@ -422,7 +424,7 @@ uint32_t getUint32Color( String hexColor ) {
 
 
 //eeprom functionality
-const uint8_t EEPROM_ALLOCATED_SIZE = 81;
+const uint8_t EEPROM_ALLOCATED_SIZE = 82;
 void initEeprom() {
   EEPROM.begin( EEPROM_ALLOCATED_SIZE ); //init this many bytes
 }
@@ -445,6 +447,7 @@ const uint8_t eepromAlarmOffColorIndex = eepromAlarmOnColorIndex + 3;
 const uint8_t eepromAlarmOnOffIndex = eepromAlarmOffColorIndex + 3;
 const uint8_t eepromAlarmOffOnIndex = eepromAlarmOnOffIndex + 3;
 const uint8_t eepromStripLedBrightnessDimmingNightIndex = eepromAlarmOffOnIndex + 3;
+const uint8_t eepromStripPartyModeIndex = eepromStripLedBrightnessDimmingNightIndex + 1;
 
 bool readEepromCharArray( const uint8_t& eepromIndex, char* variableWithValue, uint8_t maxLength, bool doApplyValue ) {
   bool isDifferentValue = false;
@@ -552,6 +555,7 @@ void loadEepromData() {
   readEepromColor( eepromAlarmOnOffIndex, raidAlarmStatusColorInactiveBlink, true );
   readEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink, true );
   readEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight, true );
+  readEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode, true );
 }
 
 
@@ -580,6 +584,61 @@ void shutdownAccessPoint() {
 
 
 //led strip functionality
+void rgbToHsv( uint8_t r, uint8_t g, uint8_t b, uint16_t& h, uint8_t& s, uint8_t& v ) {
+  float red = (float)r / 255.0;
+  float green = (float)g / 255.0;
+  float blue = (float)b / 255.0;
+
+  float cmax = max( max( red, green ), blue);
+  float cmin = min( min( red, green ), blue);
+  float delta = cmax - cmin;
+
+  if( delta == 0 ) {
+    h = 0;
+  } else if( cmax == red ) {
+    h = (uint8_t)( fmod( ( ( green - blue ) / delta ), 6.0 ) * 60.0 );
+  } else if (cmax == green) {
+    h = (uint8_t)( ( ( blue - red ) / delta ) + 2.0 ) * 60.0;
+  } else {
+    h = (uint8_t)( ( ( red - green ) / delta ) + 4.0 ) * 60.0;
+  }
+  if( h < 0 ) {
+    h += 360;
+  }
+  if( cmax == 0 ) {
+    s = 0;
+  } else {
+    s = (uint8_t)( ( delta / cmax ) * 255.0 );
+  }
+  v = (uint8_t)( cmax * 255.0 );
+}
+
+void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t& b ) {
+  uint8_t region, remainder, p, q, t;
+  if( s == 0 ) {
+    r = v; g = v; b = v;
+    return;
+  }
+
+  region = h / 60;
+  remainder = (h % 60) * 4;
+
+  p = (v * (255 - s)) >> 8;
+  q = (v * (255 - ((s * remainder) >> 8))) >> 8;
+  t = (v * (255 - ((s * (255 - remainder)) >> 8))) >> 8;
+
+  switch (region) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+  }
+}
+
+uint16_t stripPartyModeHue = 0;
+
 void renderStrip() {
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
@@ -607,23 +666,30 @@ void renderStrip() {
       }
     }
 
-    if( ( isNightMode || isNightModeTest ) && stripLedBrightness != 255 && stripLedBrightnessDimmingNight != 255 ) { //adjust led color brightness in night mode
+    if( ( (isNightMode && !stripPartyMode) || isNightModeTest ) ) { //adjust led color brightness in night mode
       uint8_t r = (uint8_t)(alarmStatusLedColorToRender >> 16), g = (uint8_t)(alarmStatusLedColorToRender >> 8), b = (uint8_t)alarmStatusLedColorToRender;
       r = (r * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
       g = (g * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
       b = (b * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
       alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r, g, b);
-    } else if( stripLedBrightness != 255 ) { //adjust led color brightness
+    } else { //adjust led color brightness
       uint8_t r = (uint8_t)(alarmStatusLedColorToRender >> 16), g = (uint8_t)(alarmStatusLedColorToRender >> 8), b = (uint8_t)alarmStatusLedColorToRender;
+      if( stripPartyMode ) {
+        uint16_t h = 0; uint8_t s = 0, v = 0;
+        rgbToHsv( r, g ,b, h, s, v );
+        hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
+      }
       r = (r * stripLedBrightness) >> 8;
       g = (g * stripLedBrightness) >> 8;
       b = (b * stripLedBrightness) >> 8;
       alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r, g, b);
     }
-
     strip.setPixelColor( alarmStatusLedIndex, alarmStatusLedColorToRender );
   }
   strip.show();
+  if( stripPartyMode ) {
+    stripPartyModeHue = ( stripPartyModeHue + 360 * 60 * DELAY_STRIP_ANIMATION / 100 / 60000 ) % 360;
+  }
 }
 
 bool setStripStatus() {
@@ -1108,12 +1174,14 @@ void vkRetrieveAndProcessServerData() {
   std::map<String, bool> regionToAlarmStatus; //alternative approach where the whole result is populated during inbound stream read 
 
   WiFiClientSecure wiFiClient;
-  wiFiClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
+  wiFiClient.setBufferSizes( 1536, 512 ); //1369 is MSS size
+  wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
   wiFiClient.setInsecure();
 
   HTTPClient httpClient;
   String serverUrl = String( getVkRaidAlarmServerProtocol() ) + String( getVkRaidAlarmServerName() ) + String( getVkRaidAlarmServerEndpoint() );
   httpClient.begin( wiFiClient, serverUrl );
+  httpClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
   httpClient.setFollowRedirects( HTTPC_STRICT_FOLLOW_REDIRECTS );
   httpClient.addHeader( F("Host"), String( getVkRaidAlarmServerName() ) );
   httpClient.addHeader( F("Cache-Control"), F("no-cache") );
@@ -1127,6 +1195,7 @@ void vkRetrieveAndProcessServerData() {
   httpClient.collectHeaders( headerKeys, 1 );
 
   Serial.print( F("Retrieving data... heap: ") + String( ESP.getFreeHeap() ) );
+  unsigned long processingTimeStartMillis = millis();
   int16_t httpCode = httpClient.GET();
 
   if( httpCode > 0 ) {
@@ -1134,7 +1203,7 @@ void vkRetrieveAndProcessServerData() {
       Serial.print( "-" + String( ESP.getFreeHeap() ) );
       unsigned long httpRequestIssuedMillis = millis(); 
       uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
-      bool waitForResponseTimeoutDelay = true; //if large response is expected, this will help retrieving all the data in case when no content-length is provided
+      bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
       uint32_t reportedResponseLength = 0;
       if( httpClient.hasHeader( getContentLengthHeaderName() ) ) {
         String reportedResponseLengthValue = httpClient.header( getContentLengthHeaderName() );
@@ -1159,7 +1228,7 @@ void vkRetrieveAndProcessServerData() {
       String jsonStatus = "";
       //variables used for response trimming to redule heap size end
 
-      const uint8_t responseCharBufferLength = 128;
+      const uint16_t responseCharBufferLength = 200;
       char responseCharBuffer[responseCharBufferLength];
       char responseCurrChar;
 
@@ -1259,7 +1328,7 @@ void vkRetrieveAndProcessServerData() {
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
       } else {
         renderStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done; bytes ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | bytes ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else {
       renderStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
@@ -1359,11 +1428,11 @@ bool acRetrieveAndProcessServerData() {
     renderStripStatus( STRIP_STATUS_PROCESSING );
     uint8_t previousInternalLedStatus = getInternalLedStatus();
     setInternalLedStatus( LOW );
-    Serial.print( F("Connecting to Air Raid Alert API...") );
+    Serial.print( F("Connecting to Raid Alert server...") );
     unsigned long connectToServerRequestedMillis = millis();
     wiFiClient.connect( getAcRaidAlarmServerName(), getAcRaidAlarmServerPort() );
     while( !wiFiClient.connected() ) {
-      if( ( millis() - connectToServerRequestedMillis ) >= TIMEOUT_TCP_CONNECTION ) {
+      if( ( millis() - connectToServerRequestedMillis ) >= TIMEOUT_TCP_CONNECTION_LONG ) {
         break;
       }
       Serial.print( "." );
@@ -1423,11 +1492,13 @@ void aiRetrieveAndProcessServerData() {
   std::map<String, bool> regionToAlarmStatus;
 
   WiFiClientSecure wiFiClient;
-  wiFiClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
+  wiFiClient.setBufferSizes( 512, 512 );
+  wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
   wiFiClient.setInsecure();
 
   HTTPClient httpClient;
   httpClient.begin( wiFiClient, getAiRaidAlarmServerUrl() );
+  httpClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
   httpClient.setFollowRedirects( HTTPC_STRICT_FOLLOW_REDIRECTS );
   httpClient.addHeader( F("Authorization"), F("Bearer ") + String( getAiRaidAlarmServerApiKey() ) );
   httpClient.addHeader( F("Cache-Control"), F("no-cache") );
@@ -1441,6 +1512,7 @@ void aiRetrieveAndProcessServerData() {
   httpClient.collectHeaders( headerKeys, 1 );
 
   Serial.print( F("Retrieving data... heap: ") + String( ESP.getFreeHeap() ) );
+  unsigned long processingTimeStartMillis = millis();
   int16_t httpCode = httpClient.GET();
 
   if( httpCode > 0 ) {
@@ -1448,7 +1520,7 @@ void aiRetrieveAndProcessServerData() {
       Serial.print( "-" + String( ESP.getFreeHeap() ) );
       unsigned long httpRequestIssuedMillis = millis(); 
       uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
-      bool waitForResponseTimeoutDelay = false; //if large response is expected, this will help retrieving all the data in case when no content-length is provided
+      bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
       uint32_t reportedResponseLength = 0;
       if( httpClient.hasHeader( getContentLengthHeaderName() ) ) {
         String reportedResponseLengthValue = httpClient.header( getContentLengthHeaderName() );
@@ -1463,7 +1535,7 @@ void aiRetrieveAndProcessServerData() {
       uint8_t jsonRegionIndex = 1;
       //variables used for response trimming to redule heap size end
 
-      const uint8_t responseCharBufferLength = 128;
+      const uint8_t responseCharBufferLength = 50;
       char responseCharBuffer[responseCharBufferLength];
       char responseCurrChar;
 
@@ -1500,7 +1572,7 @@ void aiRetrieveAndProcessServerData() {
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
       } else {
         renderStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done; bytes ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | bytes: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else if( httpCode == 304 ) {
       renderStripStatus( STRIP_STATUS_OK );
@@ -1619,6 +1691,12 @@ String getHtmlInput( String label, const char* type, const char* value, const ch
 const uint8_t getWiFiClientSsidNameMaxLength() { return WIFI_SSID_MAX_LENGTH - 1;}
 const uint8_t getWiFiClientSsidPasswordMaxLength() { return WIFI_PASSWORD_MAX_LENGTH - 1;}
 
+const char* HTML_PAGE_ROOT_ENDPOINT = "/";
+const char* HTML_PAGE_REBOOT_ENDPOINT = "/reboot";
+const char* HTML_PAGE_TESTLED_ENDPOINT = "/testled";
+const char* HTML_PAGE_TEST_NIGHT_ENDPOINT = "/testdim";
+const char* HTML_PAGE_UPDATE_ENDPOINT = "/update";
+
 const char* HTML_PAGE_WIFI_SSID_NAME = "ssid";
 const char* HTML_PAGE_WIFI_PWD_NAME = "pwd";
 const char* HTML_PAGE_RAID_SERVER_NAME = "srv";
@@ -1633,6 +1711,7 @@ const char* HTML_PAGE_ALARM_OFF_NAME = "clroff";
 const char* HTML_PAGE_ALARM_ONOFF_NAME = "clronoff";
 const char* HTML_PAGE_ALARM_OFFON_NAME = "clroffon";
 const char* HTML_PAGE_BRIGHTNESS_NIGHT_NAME = "brtn";
+const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 
 void handleWebServerGet() {
   wifiWebServer.send( 200, getTextHtmlPage(), getHtmlPage(
@@ -1661,15 +1740,16 @@ F("<form method=\"POST\">"
     "<h2>Other Settings:</h2>"
     "<div class=\"fi pl\">") + getHtmlInput( F("Show raid alarms only"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + F("</div>"
     "<div class=\"fi pl\">") + getHtmlInput( F("Show status LED when idle"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + F("</div>"
+    "<div class=\"fi pl\">") + getHtmlInput( F("Party mode (hue shifting)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + F("</div>"
   "</div>"
   "<div class=\"fx ft\">"
     "<div class=\"fi\"><button type=\"submit\">Apply</button></div>"
   "</div>"
 "</form>"
 "<div class=\"fx ft\">"
-  "") + getHtmlLink( "/reboot", F("Reboot") ) + getHtmlLink( "/update", F("Update FW") + String( getFirmwareVersion() ) ) + ""
+  "") + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Reboot") ) + getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Update FW") + String( getFirmwareVersion() ) ) + ""
   "" + F("<span class=\"hint\"></span>"
-  "") + getHtmlLink( "/testnight", F("Test Dimming") ) + getHtmlLink( "/testled", F("Test LEDs") ) + F(""
+  "") + getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Test Dimming") ) + getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Test LEDs") ) + F(""
 "</div>") ) );
 }
 
@@ -1785,6 +1865,17 @@ void handleWebServerPost() {
     stripLedBrightnessDimmingNightReceivedPopulated = true;
   }
 
+  String htmlPagePartyModeCheckboxReceived = wifiWebServer.arg( HTML_PAGE_STRIP_PARTY_MODE_NAME );
+  bool stripPartyModeReceived = false;
+  bool stripPartyModeReceivedPopulated = false;
+  if( htmlPagePartyModeCheckboxReceived == "on" ) {
+    stripPartyModeReceived = true;
+    stripPartyModeReceivedPopulated = true;
+  } else if( htmlPagePartyModeCheckboxReceived == "" ) {
+    stripPartyModeReceived = false;
+    stripPartyModeReceivedPopulated = true;
+  }
+
   bool isWiFiChanged = strcmp( wiFiClientSsid, htmlPageSsidNameReceived.c_str() ) != 0 || strcmp( wiFiClientPassword, htmlPageSsidPasswordReceived.c_str() ) != 0;
   bool isDataSourceChanged = raidAlarmServerReceivedPopulated && raidAlarmServerReceived != currentRaidAlarmServer;
 
@@ -1849,6 +1940,14 @@ void handleWebServerPost() {
     Serial.println( F("Strip night brightness updated") );
     initTimeClient( false );
     writeEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNightReceived );
+  }
+
+  if( stripPartyModeReceivedPopulated && stripPartyModeReceived != stripPartyMode ) {
+    stripPartyMode = stripPartyModeReceived;
+    isStripRerenderRequired = true;
+    Serial.println( F("Strip party mode updated") );
+    stripPartyModeHue = 0;
+    writeEepromIntValue( eepromStripPartyModeIndex, stripPartyModeReceived );
   }
 
   if( isStripStatusRerenderRequired ) {
@@ -1918,11 +2017,11 @@ void handleWebServerGetReboot() {
 bool isWebServerInitialized = false;
 void createWebServer() {
   Serial.print( F("Starting web server...") );
-  wifiWebServer.on( "/", HTTP_GET,  handleWebServerGet );
-  wifiWebServer.on( "/", HTTP_POST, handleWebServerPost );
-  wifiWebServer.on( "/testnight", HTTP_GET, handleWebServerGetTestNight );
-  wifiWebServer.on( "/testled", HTTP_GET, handleWebServerGetTestLeds );
-  wifiWebServer.on( "/reboot", HTTP_GET, handleWebServerGetReboot );
+  wifiWebServer.on( HTML_PAGE_ROOT_ENDPOINT, HTTP_GET,  handleWebServerGet );
+  wifiWebServer.on( HTML_PAGE_ROOT_ENDPOINT, HTTP_POST, handleWebServerPost );
+  wifiWebServer.on( HTML_PAGE_TEST_NIGHT_ENDPOINT, HTTP_GET, handleWebServerGetTestNight );
+  wifiWebServer.on( HTML_PAGE_TESTLED_ENDPOINT, HTTP_GET, handleWebServerGetTestLeds );
+  wifiWebServer.on( HTML_PAGE_REBOOT_ENDPOINT, HTTP_GET, handleWebServerGetReboot );
   httpUpdater.setup( &wifiWebServer );
   wifiWebServer.begin();
   isWebServerInitialized = true;
@@ -2016,5 +2115,5 @@ void loop() {
   }
 
   isFirstLoopRun = false;
-  delay(5); //https://www.tablix.org/~avian/blog/archives/2022/08/saving_power_on_an_esp8266_web_server_using_delays/
+  delay(10); //https://www.tablix.org/~avian/blog/archives/2022/08/saving_power_on_an_esp8266_web_server_using_delays/
 }
