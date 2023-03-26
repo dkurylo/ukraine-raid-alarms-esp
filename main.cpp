@@ -422,6 +422,59 @@ uint32_t getUint32Color( String hexColor ) {
   return colorValue;
 }
 
+void rgbToHsv( uint8_t r, uint8_t g, uint8_t b, uint16_t& h, uint8_t& s, uint8_t& v ) {
+  float red = (float)r / 255.0;
+  float green = (float)g / 255.0;
+  float blue = (float)b / 255.0;
+
+  float cmax = max( max( red, green ), blue);
+  float cmin = min( min( red, green ), blue);
+  float delta = cmax - cmin;
+
+  if( delta == 0 ) {
+    h = 0;
+  } else if( cmax == red ) {
+    h = (uint8_t)( fmod( ( ( green - blue ) / delta ), 6.0 ) * 60.0 );
+  } else if (cmax == green) {
+    h = (uint8_t)( ( ( blue - red ) / delta ) + 2.0 ) * 60.0;
+  } else {
+    h = (uint8_t)( ( ( red - green ) / delta ) + 4.0 ) * 60.0;
+  }
+  if( h < 0 ) {
+    h += 360;
+  }
+  if( cmax == 0 ) {
+    s = 0;
+  } else {
+    s = (uint8_t)( ( delta / cmax ) * 255.0 );
+  }
+  v = (uint8_t)( cmax * 255.0 );
+}
+
+void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t& b ) {
+  uint8_t region, remainder, p, q, t;
+  if( s == 0 ) {
+    r = v; g = v; b = v;
+    return;
+  }
+
+  region = h / 60;
+  remainder = (h % 60) * 4;
+
+  p = (v * (255 - s)) >> 8;
+  q = (v * (255 - ((s * remainder) >> 8))) >> 8;
+  t = (v * (255 - ((s * (255 - remainder)) >> 8))) >> 8;
+
+  switch (region) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+  }
+}
+
 
 //eeprom functionality
 const uint8_t EEPROM_ALLOCATED_SIZE = 82;
@@ -584,59 +637,6 @@ void shutdownAccessPoint() {
 
 
 //led strip functionality
-void rgbToHsv( uint8_t r, uint8_t g, uint8_t b, uint16_t& h, uint8_t& s, uint8_t& v ) {
-  float red = (float)r / 255.0;
-  float green = (float)g / 255.0;
-  float blue = (float)b / 255.0;
-
-  float cmax = max( max( red, green ), blue);
-  float cmin = min( min( red, green ), blue);
-  float delta = cmax - cmin;
-
-  if( delta == 0 ) {
-    h = 0;
-  } else if( cmax == red ) {
-    h = (uint8_t)( fmod( ( ( green - blue ) / delta ), 6.0 ) * 60.0 );
-  } else if (cmax == green) {
-    h = (uint8_t)( ( ( blue - red ) / delta ) + 2.0 ) * 60.0;
-  } else {
-    h = (uint8_t)( ( ( red - green ) / delta ) + 4.0 ) * 60.0;
-  }
-  if( h < 0 ) {
-    h += 360;
-  }
-  if( cmax == 0 ) {
-    s = 0;
-  } else {
-    s = (uint8_t)( ( delta / cmax ) * 255.0 );
-  }
-  v = (uint8_t)( cmax * 255.0 );
-}
-
-void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t& b ) {
-  uint8_t region, remainder, p, q, t;
-  if( s == 0 ) {
-    r = v; g = v; b = v;
-    return;
-  }
-
-  region = h / 60;
-  remainder = (h % 60) * 4;
-
-  p = (v * (255 - s)) >> 8;
-  q = (v * (255 - ((s * remainder) >> 8))) >> 8;
-  t = (v * (255 - ((s * (255 - remainder)) >> 8))) >> 8;
-
-  switch (region) {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    default: r = v; g = p; b = q; break;
-  }
-}
-
 uint16_t stripPartyModeHue = 0;
 unsigned long lastLedUpdateTimeMillis = 0;
 
