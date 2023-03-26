@@ -77,7 +77,7 @@ const uint32_t DELAY_NTP_TIME_SYNC = 3600000;
 //raid alarm server selection
 const uint8_t VK_RAID_ALARM_SERVER = 1; //"vadimklimenko.com"; periodically issues standard get request to server and receives large JSON with alarm data. When choosing VK_RAID_ALARM_SERVER, config variables start with VK_
 const uint8_t AC_RAID_ALARM_SERVER = 2; //"tcp.alerts.com.ua"; uses TCP connection and receives alarms instantly, but requires valid API_KEY to function. When choosing AL_RAID_ALARM_SERVER, config variables start with AC_
-const uint8_t AI_RAID_ALARM_SERVER = 3; //"alerts.in.ua"; periodically issues standard get request to server and receives small JSON with alarm data. When choosing VK_RAID_ALARM_SERVER, config variables start with AI_
+const uint8_t AI_RAID_ALARM_SERVER = 3; //"alerts.in.ua"; periodically issues standard get request to server and receives small JSON with alarm data. When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
 
 //vk raid alarm server-specific config
 const char* getVkRaidAlarmServerProtocol() { const char* result = "https://"; return result; };
