@@ -23,7 +23,7 @@
 const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
 
 //wifi access point configuration
-const char* getWiFiAccessPointSsid() { const char* result = "Raid Monitor"; return result; };
+const char* getWiFiAccessPointSsid() { const char* result = "Air Raid Monitor"; return result; };
 const char* getWiFiAccessPointPassword() { const char* result = "12345678"; return result; };
 const IPAddress getWiFiAccessPointIp() { IPAddress result( 192, 168, 1, 1 ); return result; };
 const IPAddress getWiFiAccessPointNetMask() { IPAddress result( 255, 255, 255, 0 ); return result; };
@@ -152,7 +152,7 @@ const std::vector<std::vector<const char*>> getVkRegions() {
 //al raid alarm server-specific config
 const char* getAcRaidAlarmServerName() { const char* result = "tcp.alerts.com.ua"; return result; };
 const uint16_t getAcRaidAlarmServerPort() { const uint16_t result = 1024; return result; };
-const char* getAcRaidAlarmServerApiKey() { const char* result = "API-KEY"; return result; };
+const char* getAcRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
 const uint16_t DELAY_AC_WIFI_CONNECTION_CHECK = 15000; //wifi connection check frequency in ms
 
 //mapping for 40x30 board
@@ -221,7 +221,7 @@ const std::vector<std::vector<const char*>> getAcRegions() {
 
 //ai raid alarm server-specific config
 const char* getAiRaidAlarmServerUrl() { const char* result = "https://api.alerts.in.ua/v1/iot/active_air_raid_alerts_by_oblast.json"; return result; };
-const char* getAiRaidAlarmServerApiKey() { const char* result = "API-KEY"; return result; };
+const char* getAiRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
 const uint16_t DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 15000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
 
 //response example: "ANNNNNNNNNNNANNNNNNNNNNNNNN"
@@ -638,6 +638,7 @@ void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t
 }
 
 uint16_t stripPartyModeHue = 0;
+unsigned long lastLedUpdateTimeMillis = 0;
 
 void renderStrip() {
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
@@ -686,10 +687,17 @@ void renderStrip() {
     }
     strip.setPixelColor( alarmStatusLedIndex, alarmStatusLedColorToRender );
   }
-  strip.show();
   if( stripPartyMode ) {
-    stripPartyModeHue = ( stripPartyModeHue + 360 * 60 * DELAY_STRIP_ANIMATION / 100 / 60000 ) % 360;
+    stripPartyModeHue = ( stripPartyModeHue + 360 * DELAY_STRIP_ANIMATION / 60000 ) % 360;
   }
+
+  uint8_t millisToWait = ceil( STRIP_LED_COUNT / 33.333 );
+  unsigned long currentMillis = millis();
+  while( ( currentMillis - lastLedUpdateTimeMillis ) < millisToWait ) { //ensure strip is not rendered too frequently; for 800KHz and 100LEDs the update time is 3 milliseconds (~divide led count by 33.333)
+    currentMillis = millis();
+  }
+  strip.show();
+  lastLedUpdateTimeMillis = millis();
 }
 
 bool setStripStatus() {
@@ -1341,7 +1349,7 @@ void vkRetrieveAndProcessServerData() {
     }
   } else {
     renderStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
-    Serial.println( F(" ERROR: server not connected") );
+    Serial.println( F(" ERROR: ") + httpClient.errorToString( httpCode ) );
   }
 
   httpClient.end();
@@ -1591,7 +1599,7 @@ void aiRetrieveAndProcessServerData() {
     }
   } else {
     renderStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
-    Serial.println( F(" ERROR: server not connected") );
+    Serial.println( F(" ERROR: ") + httpClient.errorToString( httpCode ) );
   }
 
   httpClient.end();
@@ -1747,9 +1755,9 @@ F("<form method=\"POST\">"
   "</div>"
 "</form>"
 "<div class=\"fx ft\">"
-  "") + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Reboot") ) + getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Update FW") + String( getFirmwareVersion() ) ) + ""
-  "" + F("<span class=\"hint\"></span>"
   "") + getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Test Dimming") ) + getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Test LEDs") ) + F(""
+  "<span class=\"hint\"></span>"
+  "") + getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Update FW") + String( getFirmwareVersion() ) ) + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Reboot") ) + F(""
 "</div>") ) );
 }
 
@@ -2031,7 +2039,7 @@ void createWebServer() {
 
 //setup and main loop
 void setup() {
-  Serial.begin( 9600 );
+  Serial.begin( 115200 );
   initInternalLed();
   initEeprom();
   //resetEepromData(); //for testing
