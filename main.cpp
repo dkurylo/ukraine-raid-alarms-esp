@@ -17,9 +17,8 @@
 #include <math.h>
 #include <EEPROM.h>
 #include <Adafruit_NeoPixel.h>
-//#include <ArduinoJson.h>
 
-
+bool isNewBoard = false;
 const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
 
 //wifi access point configuration
@@ -85,40 +84,7 @@ const char* getVkRaidAlarmServerName() { const char* result = "vadimklimenko.com
 const char* getVkRaidAlarmServerEndpoint() { const char* result = "/map/statuses.json"; return result; };
 const uint16_t DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 15000; //wifi connection and raid alarm check frequency in ms
 
-//mapping for 40x30 board
 const std::vector<std::vector<const char*>> getVkRegions() {
-  const std::vector<std::vector<const char*>> result = { //element position is the led index
-    { "Закарпатська область" }, //Закарпатська область
-    { "Львівська область" }, //Львівська область
-    { "Волинська область" }, //Волинська область
-    { "Рівненська область" }, //Рівненська область
-    { "Тернопільська область" }, //Тернопільська область
-    { "Івано-Франківська область" }, //Івано-Франківська область
-    { "Чернівецька область" }, //Чернівецька область
-    { "Хмельницька область" }, //Хмельницька область
-    { "Житомирська область" }, //Житомирська область
-    { "Вінницька область" }, //Вінницька область
-    { "Київська область", "м. Київ" }, //Київська область, м. Київ
-    { "Чернігівська область" }, //Чернігівська область
-    { "Сумська область" }, //Сумська область
-    { "Харківська область" }, //Харківська область
-    { "Луганська область" }, //Луганська область
-    { "Донецька область" }, //Донецька область
-    { "Запорізька область" }, //Запорізька область
-    { "Дніпропетровська область" }, //Дніпропетровська область
-    { "Полтавська область" }, //Полтавська область
-    { "Черкаська область" }, //Черкаська область
-    { "Кіровоградська область" }, //Кіровоградська область
-    { "Миколаївська область" }, //Миколаївська область
-    { "Херсонська область" }, //Херсонська область
-    { "АР Крим", "Севастополь'" }, //АР Крим, Севастополь
-    { "Одеська область" } //Одеська область
-  };
-  return result;
-}
-
-//mapping for 24x18 board
-/*const std::vector<std::vector<const char*>> getVkRegions() {
   const std::vector<std::vector<const char*>> result = { //element position is the led index
     { "Закарпатська область" }, //Закарпатська область
     { "Львівська область" }, //Львівська область
@@ -147,7 +113,7 @@ const std::vector<std::vector<const char*>> getVkRegions() {
     { "Херсонська область" } //Херсонська область
   };
   return result;
-}*/
+}
 
 //al raid alarm server-specific config
 const char* getAcRaidAlarmServerName() { const char* result = "tcp.alerts.com.ua"; return result; };
@@ -155,40 +121,7 @@ const uint16_t getAcRaidAlarmServerPort() { const uint16_t result = 1024; return
 const char* getAcRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
 const uint16_t DELAY_AC_WIFI_CONNECTION_CHECK = 15000; //wifi connection check frequency in ms
 
-//mapping for 40x30 board
 const std::vector<std::vector<const char*>> getAcRegions() {
-  const std::vector<std::vector<const char*>> result = { //element position is the led index
-    {  "6" }, //Закарпатська область
-    { "12" }, //Львівська область
-    {  "2" }, //Волинська область
-    { "16" }, //Рівненська область
-    { "18" }, //Тернопільська область
-    {  "8" }, //Івано-Франківська область
-    { "23" }, //Чернівецька область
-    { "21" }, //Хмельницька область
-    {  "5" }, //Житомирська область
-    {  "1" }, //Вінницька область
-    {  "9", "25" }, //Київська область, м. Київ
-    { "24" }, //Чернігівська область
-    { "17" }, //Сумська область
-    { "19" }, //Харківська область
-    { "11" }, //Луганська область
-    {  "4" }, //Донецька область
-    {  "7" }, //Запорізька область
-    {  "3" }, //Дніпропетровська область
-    { "15" }, //Полтавська область
-    { "22" }, //Черкаська область
-    { "10" }, //Кіровоградська область
-    { "13" }, //Миколаївська область
-    { "20" }, //Херсонська область
-    {      }, //АР Крим, Севастополь, AC API is not sending any data for it
-    { "14" } //Одеська область
-  };
-  return result;
-}
-
-//mapping for 24x18 board
-/*const std::vector<std::vector<const char*>> getAcRegions() {
   const std::vector<std::vector<const char*>> result = { //element position is the led index
     {  "6" }, //Закарпатська область
     { "12" }, //Львівська область
@@ -217,12 +150,12 @@ const std::vector<std::vector<const char*>> getAcRegions() {
     { "20" } //Херсонська область
   };
   return result;
-}*/
+}
 
 //ai raid alarm server-specific config
 const char* getAiRaidAlarmServerUrl() { const char* result = "https://api.alerts.in.ua/v1/iot/active_air_raid_alerts_by_oblast.json"; return result; };
 const char* getAiRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
-const uint16_t DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 15000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
+const uint16_t DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 17000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
 
 //response example: "ANNNNNNNNNNNANNNNNNNNNNNNNN"
 //response order: ["Автономна Республіка Крим", "Волинська область", "Вінницька область", "Дніпропетровська область", "Донецька область",
@@ -231,40 +164,8 @@ const uint16_t DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 15000; //wifi con
 //                 "Одеська область", "Полтавська область", "Рівненська область", "м. Севастополь", "Сумська область",
 //                 "Тернопільська область", "Харківська область", "Херсонська область", "Хмельницька область", "Черкаська область",
 //                 "Чернівецька область", "Чернігівська область"]
-//mapping for 40x30 board; number is the data item index (starts from 1)
+//number is the data item index (starts from 1)
 const std::vector<std::vector<const char*>> getAiRegions() {
-  const std::vector<std::vector<const char*>> result = { //element position is the led index
-    {  "7" }, //Закарпатська область
-    { "14" }, //Львівська область
-    {  "2" }, //Волинська область
-    { "18" }, //Рівненська область
-    { "21" }, //Тернопільська область
-    {  "9" }, //Івано-Франківська область
-    { "26" }, //Чернівецька область
-    { "24" }, //Хмельницька область
-    {  "6" }, //Житомирська область
-    {  "3" }, //Вінницька область
-    { "10", "11" }, //м. Київ, Київська область
-    { "27" }, //Чернігівська область
-    { "20" }, //Сумська область
-    { "22" }, //Харківська область
-    { "13" }, //Луганська область
-    {  "5" }, //Донецька область
-    {  "8" }, //Запорізька область
-    {  "4" }, //Дніпропетровська область
-    { "17" }, //Полтавська область
-    { "25" }, //Черкаська область
-    { "12" }, //Кіровоградська область
-    { "15" }, //Миколаївська область
-    { "23" }, //Херсонська область
-    {  "1", "19" }, //АР Крим, Севастополь, AC API is not sending any data for it
-    { "16" } //Одеська область
-  };
-  return result;
-}
-
-//mapping for 24x18 board; number is the data item index (starts from 1)
-/*const std::vector<std::vector<const char*>> getAiRegions() {
   const std::vector<std::vector<const char*>> result = { //element position is the led index
     {  "7" }, //Закарпатська область
     { "14" }, //Львівська область
@@ -293,7 +194,8 @@ const std::vector<std::vector<const char*>> getAiRegions() {
     { "23" } //Херсонська область
   };
   return result;
-}*/
+}
+
 
 //connection settings
 const uint16_t TIMEOUT_HTTP_CONNECTION = 10000;
@@ -313,17 +215,19 @@ uint8_t statusLedColor = STRIP_STATUS_OK;
 
 uint8_t stripLedBrightnessDimmingNight = 255;
 bool isNightMode = false;
+bool isUserAwake = true;
 bool isNightModeTest = false;
 bool stripPartyMode = false;
+uint16_t stripPartyModeHue = 0;
 
 const int8_t RAID_ALARM_STATUS_UNINITIALIZED = -1;
 const int8_t RAID_ALARM_STATUS_INACTIVE = 0;
 const int8_t RAID_ALARM_STATUS_ACTIVE = 1;
 
-uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(63, 0, 0);
-uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(63, 63, 0);
+uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(91, 0, 0);
+uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(91, 91, 0);
 uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(0, 63, 0);
-uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(63, 63, 0);
+uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(91, 91, 0);
 
 std::map<const char*, int8_t> regionToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
 std::vector<std::vector<uint32_t>> transitionAnimations; //populated automatically
@@ -331,7 +235,7 @@ uint8_t currentRaidAlarmServer = VK_RAID_ALARM_SERVER;
 
 ESP8266WebServer wifiWebServer(80);
 ESP8266HTTPUpdateServer httpUpdater;
-WiFiClient wiFiClient; //used for AC; VK and AI use WiFiClientSecure and inits it separately
+WiFiClient wiFiClient; //used for AC; VK and AI use WiFiClientSecure and init it separately
 WiFiUDP ntpUdp;
 NTPClient timeClient(ntpUdp);
 Adafruit_NeoPixel strip(STRIP_LED_COUNT, STRIP_PIN, NEO_GRB + NEO_KHZ800);
@@ -477,19 +381,13 @@ void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t
 
 
 //eeprom functionality
-const uint8_t EEPROM_ALLOCATED_SIZE = 82;
+const uint8_t EEPROM_ALLOCATED_SIZE = 83;
 void initEeprom() {
   EEPROM.begin( EEPROM_ALLOCATED_SIZE ); //init this many bytes
 }
 
-void resetEepromData() { //for testing
-  for( uint8_t i = 0; i < EEPROM_ALLOCATED_SIZE; i++ ) {
-    EEPROM.write( i, '\0' );
-  }
-  EEPROM.commit();
-}
-
-const uint8_t eepromWiFiSsidIndex = 0;
+const uint8_t eepromIsNewBoardIndex = 0;
+const uint8_t eepromWiFiSsidIndex = eepromIsNewBoardIndex + 1;
 const uint8_t eepromWiFiPasswordIndex = eepromWiFiSsidIndex + WIFI_SSID_MAX_LENGTH;
 const uint8_t eepromRaidAlarmServerIndex = eepromWiFiPasswordIndex + WIFI_PASSWORD_MAX_LENGTH;
 const uint8_t eepromShowOnlyActiveAlarmsIndex = eepromRaidAlarmServerIndex + 1;
@@ -597,18 +495,40 @@ bool writeEepromColor( const uint8_t& eepromIndex, uint32_t newValue ) {
 }
 
 void loadEepromData() {
-  readEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH, true );
-  readEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH, true );
-  readEepromIntValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer, true );
-  readEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarms, true );
-  readEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripIdleStatusLed, true );
-  readEepromIntValue( eepromStripLedBrightnessIndex, stripLedBrightness, true );
-  readEepromColor( eepromAlarmOnColorIndex, raidAlarmStatusColorActive, true );
-  readEepromColor( eepromAlarmOffColorIndex, raidAlarmStatusColorInactive, true );
-  readEepromColor( eepromAlarmOnOffIndex, raidAlarmStatusColorInactiveBlink, true );
-  readEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink, true );
-  readEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight, true );
-  readEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode, true );
+  readEepromBoolValue( eepromIsNewBoardIndex, isNewBoard, true );
+  if( !isNewBoard ) {
+
+    readEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH, true );
+    readEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH, true );
+    readEepromIntValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer, true );
+    readEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarms, true );
+    readEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripIdleStatusLed, true );
+    readEepromIntValue( eepromStripLedBrightnessIndex, stripLedBrightness, true );
+    readEepromColor( eepromAlarmOnColorIndex, raidAlarmStatusColorActive, true );
+    readEepromColor( eepromAlarmOffColorIndex, raidAlarmStatusColorInactive, true );
+    readEepromColor( eepromAlarmOnOffIndex, raidAlarmStatusColorInactiveBlink, true );
+    readEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink, true );
+    readEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight, true );
+    readEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode, true );
+
+  } else { //fill EEPROM with default values when starting the new board
+    writeEepromBoolValue( eepromIsNewBoardIndex, false );
+
+    writeEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH );
+    writeEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH );
+    writeEepromIntValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer );
+    writeEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarms );
+    writeEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripIdleStatusLed );
+    writeEepromIntValue( eepromStripLedBrightnessIndex, stripLedBrightness );
+    writeEepromColor( eepromAlarmOnColorIndex, raidAlarmStatusColorActive );
+    writeEepromColor( eepromAlarmOffColorIndex, raidAlarmStatusColorInactive );
+    writeEepromColor( eepromAlarmOnOffIndex, raidAlarmStatusColorInactiveBlink );
+    writeEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink );
+    writeEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight );
+    writeEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode );
+
+    isNewBoard = false;
+  }
 }
 
 
@@ -637,8 +557,13 @@ void shutdownAccessPoint() {
 
 
 //led strip functionality
-uint16_t stripPartyModeHue = 0;
-unsigned long lastLedUpdateTimeMillis = 0;
+bool isLedDimmingNightActive() {
+  return isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode );
+}
+
+uint8_t getLedDimmingNightCoeff() {
+  return  stripLedBrightnessDimmingNight + ( ( isNightModeTest || ( isNightMode && !isUserAwake ) ) ? 0 : ( ( 255 + 2 * stripLedBrightnessDimmingNight ) / 3 ) );
+}
 
 void renderStrip() {
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
@@ -667,14 +592,13 @@ void renderStrip() {
       }
     }
 
-    if( ( (isNightMode && !stripPartyMode) || isNightModeTest ) ) { //adjust led color brightness in night mode
-      uint8_t r = (uint8_t)(alarmStatusLedColorToRender >> 16), g = (uint8_t)(alarmStatusLedColorToRender >> 8), b = (uint8_t)alarmStatusLedColorToRender;
-      r = (r * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
-      g = (g * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
-      b = (b * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
-      alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r, g, b);
-    } else { //adjust led color brightness
-      uint8_t r = (uint8_t)(alarmStatusLedColorToRender >> 16), g = (uint8_t)(alarmStatusLedColorToRender >> 8), b = (uint8_t)alarmStatusLedColorToRender;
+    uint8_t r = (uint8_t)(alarmStatusLedColorToRender >> 16), g = (uint8_t)(alarmStatusLedColorToRender >> 8), b = (uint8_t)alarmStatusLedColorToRender;
+    if( isLedDimmingNightActive() ) { //adjust led color brightness in night mode
+      uint8_t stripLedBrightnessNightCoeff = getLedDimmingNightCoeff();
+      r = (r * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
+      g = (g * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
+      b = (b * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
+    } else {
       if( stripPartyMode ) {
         uint16_t h = 0; uint8_t s = 0, v = 0;
         rgbToHsv( r, g ,b, h, s, v );
@@ -683,21 +607,15 @@ void renderStrip() {
       r = (r * stripLedBrightness) >> 8;
       g = (g * stripLedBrightness) >> 8;
       b = (b * stripLedBrightness) >> 8;
-      alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r, g, b);
     }
+    alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r, g, b);
     strip.setPixelColor( alarmStatusLedIndex, alarmStatusLedColorToRender );
   }
   if( stripPartyMode ) {
     stripPartyModeHue = ( stripPartyModeHue + 360 * DELAY_STRIP_ANIMATION / 60000 ) % 360;
   }
 
-  uint8_t millisToWait = ceil( STRIP_LED_COUNT / 33.333 );
-  unsigned long currentMillis = millis();
-  while( ( currentMillis - lastLedUpdateTimeMillis ) < millisToWait ) { //ensure strip is not rendered too frequently; for 800KHz and 100LEDs the update time is 3 milliseconds (~divide led count by 33.333)
-    currentMillis = millis();
-  }
   strip.show();
-  lastLedUpdateTimeMillis = millis();
 }
 
 bool setStripStatus() {
@@ -715,7 +633,7 @@ bool setStripStatus() {
     ledColor = Adafruit_NeoPixel::Color(0, 9, 9);
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_SERVER_DNS_PROCESSING ) {
-    ledColor = ( isNightMode || isNightModeTest ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 3);
+    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode && !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 2);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_SERVER_DNS_ERROR ) {
     ledColor = Adafruit_NeoPixel::Color(0, 15, 0);
@@ -730,22 +648,25 @@ bool setStripStatus() {
     ledColor = Adafruit_NeoPixel::Color(15, 0, 0);
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING ) {
-    ledColor = ( isNightMode || isNightModeTest ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 3);
+    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode && !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 2);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_BLACK || ( !showStripIdleStatusLed && statusLedColor == STRIP_STATUS_OK ) ) {
     ledColor = Adafruit_NeoPixel::Color(0, 0, 0);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_OK ) {
-    ledColor = ( isNightMode || isNightModeTest ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(1, 1, 1);
+    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode && !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(1, 1, 1);
     dimLedAtNight = false;
   }
 
-  if( dimLedAtNight && ( isNightMode || isNightModeTest ) && stripLedBrightness != 255 && stripLedBrightnessDimmingNight != 255 ) { //adjust status led color to night mode
-    uint8_t r = (uint8_t)(ledColor >> 16), g = (uint8_t)(ledColor >> 8), b = (uint8_t)ledColor;
-    r = (r * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
-    g = (g * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
-    b = (b * stripLedBrightness * stripLedBrightnessDimmingNight ) >> 16;
-    ledColor = Adafruit_NeoPixel::Color(r, g, b);
+  if( dimLedAtNight ) {
+    if( isLedDimmingNightActive() ) { //adjust status led color to night mode
+      uint8_t r = (uint8_t)(ledColor >> 16), g = (uint8_t)(ledColor >> 8), b = (uint8_t)ledColor;
+      uint8_t stripLedBrightnessNightCoeff = getLedDimmingNightCoeff();
+      r = (r * stripLedBrightnessNightCoeff ) >> 8;
+      g = (g * stripLedBrightnessNightCoeff ) >> 8;
+      b = (b * stripLedBrightnessNightCoeff ) >> 8;
+      ledColor = Adafruit_NeoPixel::Color(r, g, b);
+    }
   }
 
   strip.setPixelColor( STRIP_STATUS_LED_INDEX, ledColor );
@@ -947,12 +868,17 @@ void initTimeClient( bool canWait ) {
   }
 }
 
-uint32_t getSecsFromStartOfDay( time_t dt ) {
+time_t getTodayTimeAt( time_t dt, int hour, int minute ) {
   struct tm* startOfDay = localtime(&dt);
-  startOfDay->tm_hour = 0;
-  startOfDay->tm_min = 0;
+  startOfDay->tm_hour = hour;
+  startOfDay->tm_min = minute;
   startOfDay->tm_sec = 0;
   time_t startDay = mktime(startOfDay);
+  return startDay;
+}
+
+uint32_t getSecsFromStartOfDay( time_t dt ) {
+  time_t startDay = getTodayTimeAt( dt, 0, 0 );
   uint32_t secsFromStartOfDay = (uint32_t)(difftime(dt, startDay));
   return secsFromStartOfDay;
 }
@@ -969,6 +895,45 @@ uint32_t getSecsFromStartOfYear( time_t dt ) {
   return secsFromStartYear;
 }
 
+bool isWithinDstBoundaries( time_t dt ) {
+  struct tm *timeinfo = gmtime(&dt);
+
+  // Get the last Sunday of March in the current year
+  struct tm lastMarchSunday = {0};
+  lastMarchSunday.tm_year = timeinfo->tm_year;
+  lastMarchSunday.tm_mon = 2; // March (0-based)
+  lastMarchSunday.tm_mday = 31; // Last day of March
+  mktime(&lastMarchSunday);
+  while (lastMarchSunday.tm_wday != 0) { // 0 = Sunday
+    lastMarchSunday.tm_mday--;
+    mktime(&lastMarchSunday);
+  }
+  lastMarchSunday.tm_hour = 1;
+  lastMarchSunday.tm_min = 0;
+  lastMarchSunday.tm_sec = 0;
+
+  // Get the last Sunday of October in the current year
+  struct tm lastOctoberSunday = {0};
+  lastOctoberSunday.tm_year = timeinfo->tm_year;
+  lastOctoberSunday.tm_mon = 9; // October (0-based)
+  lastOctoberSunday.tm_mday = 31; // Last day of October
+  mktime(&lastOctoberSunday);
+  while (lastOctoberSunday.tm_wday != 0) { // 0 = Sunday
+    lastOctoberSunday.tm_mday--;
+    mktime(&lastOctoberSunday);
+  }
+  lastOctoberSunday.tm_hour = 1;
+  lastOctoberSunday.tm_min = 0;
+  lastOctoberSunday.tm_sec = 0;
+
+  // Convert the struct tm to time_t
+  time_t lastMarchSunday_t = mktime(&lastMarchSunday);
+  time_t lastOctoberSunday_t = mktime(&lastOctoberSunday);
+
+  // Check if the datetime is within the DST boundaries
+  return dt > lastMarchSunday_t && dt < lastOctoberSunday_t;
+}
+
 std::pair<uint32_t, int8_t> getSunEvent( time_t dt, bool isSunrise ) { //true = sunrise event; false = sunset event
   double secsInOneDay = 60.0 * 60.0 * 24.0;
   double daysFromStartYear = (double)getSecsFromStartOfYear(dt) / secsInOneDay;
@@ -977,7 +942,7 @@ std::pair<uint32_t, int8_t> getSunEvent( time_t dt, bool isSunrise ) { //true = 
   double longitude = 24.0297;
   double zenith = 90.8333;
 
-	double longitudeHour = longitude / 360.0 * 24.0;
+  double longitudeHour = longitude / 360.0 * 24.0;
 
   double timeOfEventApprox = daysFromStartYear + ( ( ( isSunrise ? 6.0 : 18.0 ) - longitudeHour ) / 24.0 );
   double sunMeanAnomaly = ( 0.9856 * timeOfEventApprox ) - 3.289;
@@ -1002,20 +967,29 @@ std::pair<uint32_t, int8_t> getSunEvent( time_t dt, bool isSunrise ) { //true = 
   return std::make_pair(sunEventSecsFromStartOfDay, 0);
 }
 
-bool getIsDay( time_t dt ) {
+void calculateTimeOfDay( time_t dt ) {
   uint32_t secsFromStartOfDay = getSecsFromStartOfDay(dt);
-
   std::pair<uint32_t, int8_t> secsFromStartOfDaytoSunrise = getSunEvent(dt, true);
-  if( secsFromStartOfDaytoSunrise.second == -1 ) return false; //never rises
-  if( secsFromStartOfDaytoSunrise.second == 1 ) return true; //never sets
-  if( secsFromStartOfDay < secsFromStartOfDaytoSunrise.first ) return false;
-
-  std::pair<uint32_t, int8_t> secsFromStartOfDaytoSunset = getSunEvent(dt, false);
-  if( secsFromStartOfDaytoSunset.second == -1 ) return false; //never rises
-  if( secsFromStartOfDaytoSunset.second == 1 ) return true; //never sets
-  if( secsFromStartOfDay > secsFromStartOfDaytoSunset.first ) return false;
-
-  return true;
+  if( secsFromStartOfDaytoSunrise.second == -1 ) { //never rises
+    isNightMode = true;
+  } else if( secsFromStartOfDaytoSunrise.second == 1 ) { //never sets
+    isNightMode = false;
+  } else if( secsFromStartOfDay < secsFromStartOfDaytoSunrise.first ) { //night before sunrise
+    isNightMode = true;
+  } else { //day or night after sunset
+    std::pair<uint32_t, int8_t> secsFromStartOfDaytoSunset = getSunEvent(dt, false);
+    if( secsFromStartOfDaytoSunset.second == -1 ) { //never rises
+      isNightMode = true;
+    } else if( secsFromStartOfDaytoSunset.second == 1 ) { //never sets
+      isNightMode = false;
+    } else if( secsFromStartOfDay > secsFromStartOfDaytoSunset.first ) { //night after sunset
+      isNightMode = true;
+    } else { //day
+      isNightMode = false;
+    }
+  }
+  int8_t dstBoundariesCorrection = isWithinDstBoundaries( dt ) ? -1 : 0;
+  isUserAwake = difftime(dt, getTodayTimeAt(dt, 6 + dstBoundariesCorrection, 0)) > 0 && difftime(dt, getTodayTimeAt(dt, 19 + dstBoundariesCorrection, 0)) < 0;
 }
 
 void setTimeOfDay() {
@@ -1025,7 +999,7 @@ void setTimeOfDay() {
     timeClient.update();
   }
   if( timeClient.isTimeSet() ) {
-    isNightMode = !getIsDay( timeClient.getEpochTime() );
+    calculateTimeOfDay( timeClient.getEpochTime() );
   }
 }
 
@@ -1059,6 +1033,41 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
     if( isAlarmEnabled ) {
       transitionAnimation.insert(
         transitionAnimation.end(),
+        /*{
+          isNightMode || isNightModeTest
+          ? raidAlarmStatusColorActiveBlink
+          : Adafruit_NeoPixel::Color(
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >> 16)) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >> 16)) * 0.3) ),
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >>  8)) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >>  8)) * 0.3) ),
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive)      )) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink)      )) * 0.3) )
+          ),
+          raidAlarmStatusColorActive,
+          isNightMode || isNightModeTest
+          ? raidAlarmStatusColorActiveBlink
+          : Adafruit_NeoPixel::Color(
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >> 16)) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >> 16)) * 0.6) ),
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >>  8)) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >>  8)) * 0.6) ),
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive)      )) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink)      )) * 0.6) )
+          ),
+          raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive,
+          isNightMode || isNightModeTest
+          ? raidAlarmStatusColorActiveBlink
+          : Adafruit_NeoPixel::Color(
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >> 16)) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >> 16)) * 0.6) ),
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >>  8)) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >>  8)) * 0.6) ),
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive)      )) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink)      )) * 0.6) )
+          ),
+          raidAlarmStatusColorActive,
+          isNightMode || isNightModeTest
+          ? raidAlarmStatusColorActiveBlink
+          : Adafruit_NeoPixel::Color(
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >> 16)) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >> 16)) * 0.3) ),
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >>  8)) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >>  8)) * 0.3) ),
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive)      )) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink)      )) * 0.3) )
+          ),
+        }*/
         {
           raidAlarmStatusColorActiveBlink,
           raidAlarmStatusColorActive,
@@ -1074,6 +1083,41 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
     } else {
       transitionAnimation.insert(
         transitionAnimation.end(),
+        /*{
+          isNightMode || isNightModeTest
+          ? raidAlarmStatusColorInactiveBlink
+          : Adafruit_NeoPixel::Color(
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >> 16)) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >> 16)) * 0.3) ),
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >>  8)) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >>  8)) * 0.3) ),
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive)      )) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink)      )) * 0.3) )
+          ),
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          isNightMode || isNightModeTest
+          ? raidAlarmStatusColorInactiveBlink
+          : Adafruit_NeoPixel::Color(
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >> 16)) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >> 16)) * 0.6) ),
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >>  8)) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >>  8)) * 0.6) ),
+            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive)      )) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink)      )) * 0.6) )
+          ),
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          isNightMode || isNightModeTest
+          ? raidAlarmStatusColorInactiveBlink
+          : Adafruit_NeoPixel::Color(
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >> 16)) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >> 16)) * 0.6) ),
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >>  8)) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >>  8)) * 0.6) ),
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive)      )) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink)      )) * 0.6) )
+          ),
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          isNightMode || isNightModeTest
+          ? raidAlarmStatusColorInactiveBlink
+          : Adafruit_NeoPixel::Color(
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >> 16)) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >> 16)) * 0.3) ),
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >>  8)) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >>  8)) * 0.3) ),
+            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive)      )) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink)      )) * 0.3) )
+          ),
+        }*/
         {
           raidAlarmStatusColorInactiveBlink,
           showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
@@ -1107,48 +1151,7 @@ void getIpAddress( const char* serverName, IPAddress& ipAddress ) {
 }
 
 //functions for VK server
-/*void vkProcessServerData( String jsonValuablePayload ) {
-  if( jsonValuablePayload == "" ) return;
-
-  DynamicJsonDocument jsonData(1536); //adjust the buffer size to your payload size
-  DeserializationError deserializationError = deserializeJson( jsonData, jsonValuablePayload );
-  jsonData.shrinkToFit();
-  jsonData.garbageCollect();
-
-  if( !deserializationError ) {
-    bool isParseError = false;
-    const std::vector<std::vector<const char*>>& allRegions = getRegions();
-    for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-      for( const auto& region : allRegions[ledIndex] ) {
-        if( !jsonData.containsKey( region ) ) {
-          Serial.println( ( String( F("ERROR: JSON data processing failed: region ") ) + region + String( F(" not found") ) ).c_str() );
-          isParseError = true;
-          continue;
-        }
-        JsonVariant jsonEnabled = jsonData[region];
-        if( !jsonEnabled.is<bool>() ) {
-          Serial.println( ( String( F("ERROR: JSON data processing failed: region ") ) + region + String( F("does not have a Boolean value") ) ).c_str() );
-          isParseError = true;
-          continue;
-        }
-        bool isAlarmEnabled = jsonEnabled.as<bool>();
-        processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
-      }
-    }
-
-    if( isParseError ) {
-      renderStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-    }
-  } else {
-    Serial.println( F("ERROR: JSON data processing failed: ") + String( deserializationError.f_str() ) );
-    Serial.println( jsonValuablePayload );
-    renderStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-  }
-
-  jsonData.clear();
-}*/
-
-void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) {
+void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
   bool isParseError = false;
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
@@ -1168,21 +1171,38 @@ void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) {
         break;
       } else {
         isParseError = true;
-        Serial.println( ( String( F("ERROR: JSON data processing failed: region ") ) + region + String( F(" not found") ) ).c_str() );
+        Serial.println( F("ERROR: JSON data processing failed: region ") + String( region ) + F(" not found") );
       }
     }
   }
   if( isParseError ) {
-    renderStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
   }
 }
 
+/*void vkProcessServerData( String receivedRegion, bool receivedAlarmStatus ) { //processes single region at a time when it's found in JSON received
+  bool isRegionFound = false;
+  const std::vector<std::vector<const char*>>& allRegions = getRegions();
+  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
+    const std::vector<const char*>& regions = allRegions[ledIndex];
+    for( const char* region : regions ) {
+      if( strcmp( region, receivedRegion.c_str() ) != 0 ) continue;
+      isRegionFound = true;
+      processRaidAlarmStatus( ledIndex, region, receivedAlarmStatus );
+      break;
+    }
+  }
+  if( !isRegionFound ) {
+    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+    Serial.println( F("ERROR: JSON data processing failed: region ") + receivedRegion + F(" not found") );
+  }
+}*/
+
 void vkRetrieveAndProcessServerData() {
-  //String jsonValuablePayload = ""; //trimmed string for later json deserialisation and value retrieval
-  std::map<String, bool> regionToAlarmStatus; //alternative approach where the whole result is populated during inbound stream read 
+  std::map<String, bool> regionToAlarmStatus; //map to hole full region data, is not needed when single region at a time is processed
 
   WiFiClientSecure wiFiClient;
-  wiFiClient.setBufferSizes( 1536, 512 ); //1369 is MSS size
+  wiFiClient.setBufferSizes( 1536, 512 ); //1369 is received if buffer is empty
   wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
   wiFiClient.setInsecure();
 
@@ -1236,75 +1256,64 @@ void vkRetrieveAndProcessServerData() {
       String jsonStatus = "";
       //variables used for response trimming to redule heap size end
 
-      const uint16_t responseCharBufferLength = 200;
+      const uint16_t responseCharBufferLength = 256;
       char responseCharBuffer[responseCharBufferLength];
       char responseCurrChar;
 
       WiFiClient *stream = httpClient.getStreamPtr();
       while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) ) {
         uint32_t numBytesAvailable = stream->available();
-        if( numBytesAvailable > 0 ) {
-          if( numBytesAvailable > responseCharBufferLength ) {
-            numBytesAvailable = responseCharBufferLength;
+        if( numBytesAvailable == 0 ) {
+          yield();
+          continue;
+        }
+
+        if( numBytesAvailable > responseCharBufferLength ) {
+          numBytesAvailable = responseCharBufferLength;
+        }
+        uint32_t numBytesReadToBuffer = stream->readBytes( responseCharBuffer, numBytesAvailable );
+        actualResponseLength += numBytesAvailable;
+
+        for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
+          responseCurrChar = responseCharBuffer[responseCurrCharIndex];
+
+          //response trimming to reduce heap size start
+          if( currObjectLevel == 3 && enabledObjectNameFound && ( responseCurrChar == ',' || responseCurrChar == '}' ) ) {
+            enabledObjectNameFound = false;
+            currCharComparedIndex = 0;
+            if( jsonRegion != "" && ( jsonStatus == "true" || jsonStatus == "false" ) ) {
+              regionToAlarmStatus[ jsonRegion ] = jsonStatus == "true";
+              //vkProcessServerData( jsonRegion, jsonStatus == "true" );
+              jsonRegion = "";
+              jsonStatus = "";
+            }
           }
-          uint32_t numBytesReadToBuffer = stream->readBytes( responseCharBuffer, numBytesAvailable );
-          actualResponseLength += numBytesAvailable;
 
-          for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
-            responseCurrChar = responseCharBuffer[responseCurrCharIndex];
+          if( responseCurrChar == '}' ) {
+            currObjectLevel--;
+            currCharComparedIndex = 0;
+            continue;
+          }
+          if( responseCurrChar == '{' ) {
+            currObjectLevel++;
+            currCharComparedIndex = 0;
+            continue;
+          }
 
-            //response trimming to reduce heap size start
+          if( statesObjectNameFound ) {
+            if( currObjectLevel == 2 ) {
+              if( responseCurrChar == '\"' ) {
+                jsonRegionFound = !jsonRegionFound;
+                continue;
+              }
+              if( !jsonRegionFound ) continue;
+              jsonRegion += responseCurrChar;
+            }
             if( currObjectLevel == 3 ) {
               if( enabledObjectNameFound ) {
-                if( responseCurrChar == ',' || responseCurrChar == '}' ) {
-                  enabledObjectNameFound = false;
-                  currCharComparedIndex = 0;
-                  if( jsonRegion != "" && ( jsonStatus == "true" || jsonStatus == "false" ) ) {
-                    regionToAlarmStatus[ jsonRegion ] = jsonStatus == "true";
-                    jsonRegion = "";
-                    jsonStatus = "";
-                  }
-                }
-              }
-            }
-
-            if( responseCurrChar == '}' ) {
-              currObjectLevel--;
-              currCharComparedIndex = 0;
-            }
-
-            if( statesObjectNameFound ) {
-              if( currObjectLevel == 2 && responseCurrChar != '{' && responseCurrChar != '}' ) {
-                if( responseCurrChar == '\"' ) {
-                  jsonRegionFound = !jsonRegionFound;
-                } else if( jsonRegionFound ) {
-                  jsonRegion += responseCurrChar;
-                }
-              } 
-              if( currObjectLevel == 3 && enabledObjectNameFound && responseCurrChar != ' ' ) {
+                if( responseCurrChar == ' ' ) continue;
                 jsonStatus += responseCurrChar;
-              }
-            }
-
-            //if( statesObjectNameFound && ( ( currObjectLevel == 2 && responseCurrChar != '{' && responseCurrChar != '}' ) || ( currObjectLevel == 3 && enabledObjectNameFound && responseCurrChar != ' ' ) ) ) {
-            //  jsonValuablePayload += responseCurrChar;
-            //}
-
-            if( currObjectLevel == 1 ) {
-              if( !statesObjectNameFound ) {
-                if( statesObjectName[currCharComparedIndex] == responseCurrChar ) {
-                  if( currCharComparedIndex == statesObjectNameMaxIndex ) {
-                    currCharComparedIndex = 0;
-                    statesObjectNameFound = true;
-                  } else {
-                    currCharComparedIndex++;
-                  }
-                } else {
-                  currCharComparedIndex = 0;
-                }
-              }
-            } else if( currObjectLevel == 3 ) {
-              if( !enabledObjectNameFound ) {
+              } else {
                 if( enabledObjectName[currCharComparedIndex] == responseCurrChar ) {
                   if( currCharComparedIndex == enabledObjectNameMaxIndex ) {
                     currCharComparedIndex = 0;
@@ -1317,29 +1326,38 @@ void vkRetrieveAndProcessServerData() {
                 }
               }
             }
-
-            if( responseCurrChar == '{' ) {
-              currObjectLevel++;
+          } else {
+            if( currObjectLevel != 1 ) continue;
+            if( statesObjectName[currCharComparedIndex] == responseCurrChar ) {
+              if( currCharComparedIndex == statesObjectNameMaxIndex ) {
+                currCharComparedIndex = 0;
+                statesObjectNameFound = true;
+              } else {
+                currCharComparedIndex++;
+              }
+            } else {
               currCharComparedIndex = 0;
             }
-            //response trimming to reduce heap size end
           }
-
+          //response trimming to reduce heap size end
         }
+
+        //if( numBytesAvailable < responseCharBufferLength ) {
+        //  yield();
+        //}
 
         //if( reportedResponseLength == 0 ) break;
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
-        //jsonValuablePayload = "";
-        renderStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+        setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
       } else {
-        renderStripStatus( STRIP_STATUS_OK );
+        setStripStatus( STRIP_STATUS_OK );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | bytes ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else {
-      renderStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
+      setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
       WiFiClient *stream = httpClient.getStreamPtr();
       while( stream->available() ) {
@@ -1348,7 +1366,7 @@ void vkRetrieveAndProcessServerData() {
       }
     }
   } else {
-    renderStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
+    setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
     Serial.println( F(" ERROR: ") + httpClient.errorToString( httpCode ) );
   }
 
@@ -1356,8 +1374,6 @@ void vkRetrieveAndProcessServerData() {
   wiFiClient.stop();
   setInternalLedStatus( previousInternalLedStatus );
 
-  /*if( jsonValuablePayload == "" ) return;
-  //vkProcessServerData( '{' + jsonValuablePayload + '}' );*/
   if( regionToAlarmStatus.size() == 0 ) return;
   vkProcessServerData( regionToAlarmStatus );
 }
@@ -1414,7 +1430,7 @@ bool acProcessServerData( String payload ) {
       }
     }
     setInternalLedStatus( previousInternalLedStatus );
-    renderStripStatus( STRIP_STATUS_OK );
+    setStripStatus( STRIP_STATUS_OK );
   }
   return ledStatusUpdated;
 }
@@ -1449,10 +1465,10 @@ bool acRetrieveAndProcessServerData() {
     if( wiFiClient.connected() ) {
       acWifiRaidAlarmDataLastProcessedMillis = millis();
       wiFiClient.write( getAcRaidAlarmServerApiKey() );
-      renderStripStatus( STRIP_STATUS_OK );
+      setStripStatus( STRIP_STATUS_OK );
       Serial.println( F(" done") );
     } else {
-      renderStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
+      setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
       Serial.println( F(" ERROR: server connection is down") );
     }
     setInternalLedStatus( previousInternalLedStatus );
@@ -1467,7 +1483,7 @@ bool acRetrieveAndProcessServerData() {
 }
 
 
-void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) {
+void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
   bool isParseError = false;
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
@@ -1487,17 +1503,35 @@ void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) {
         break;
       } else {
         isParseError = true;
-        Serial.println( ( String( F("ERROR: JSON data processing failed: region ") ) + region + String( F(" not found") ) ).c_str() );
+        Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + region + String( F(" not found") ) );
       }
     }
   }
   if( isParseError ) {
-    renderStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
   }
 }
 
+/*void aiProcessServerData( String receivedRegionIndex, bool receivedAlarmStatus ) { //processes single region at a time when it's found in JSON received
+  bool isRegionFound = false;
+  const std::vector<std::vector<const char*>>& allRegions = getRegions();
+  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
+    const std::vector<const char*>& regions = allRegions[ledIndex];
+    for( const char* region : regions ) {
+      if( strcmp( region, receivedRegionIndex.c_str() ) != 0 ) continue;
+      isRegionFound = true;
+      processRaidAlarmStatus( ledIndex, region, receivedAlarmStatus );
+      break;
+    }
+  }
+  if( !isRegionFound ) {
+    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+    Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + receivedRegionIndex + String( F(" not found") ) );
+  }
+}*/
+
 void aiRetrieveAndProcessServerData() {
-  std::map<String, bool> regionToAlarmStatus;
+  std::map<String, bool> regionToAlarmStatus; //map to hole full region data, is not needed when single region at a time is processed
 
   WiFiClientSecure wiFiClient;
   wiFiClient.setBufferSizes( 512, 512 );
@@ -1550,46 +1584,53 @@ void aiRetrieveAndProcessServerData() {
       WiFiClient *stream = httpClient.getStreamPtr();
       while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) ) {
         uint32_t numBytesAvailable = stream->available();
-        if( numBytesAvailable > 0 ) {
-          if( numBytesAvailable > responseCharBufferLength ) {
-            numBytesAvailable = responseCharBufferLength;
-          }
-          uint32_t numBytesReadToBuffer = stream->readBytes( responseCharBuffer, numBytesAvailable );
-          actualResponseLength += numBytesAvailable;
-
-          for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
-            responseCurrChar = responseCharBuffer[responseCurrCharIndex];
-
-            //response trimming to reduce heap size start
-            if( responseCurrChar == '\"' ) {
-              jsonStringFound = !jsonStringFound;
-              continue;
-            }
-            if( !jsonStringFound ) continue;
-            regionToAlarmStatus[String(jsonRegionIndex)] = responseCurrChar == 'A' || responseCurrChar == 'P'; //A - активна в усій області; P - часткова тривога в районах чи громадах; N - немає тривоги
-            jsonRegionIndex++;
-            //response trimming to reduce heap size end
-          }
+        if( numBytesAvailable == 0 ) {
+          yield();
+          continue;
         }
+        if( numBytesAvailable > responseCharBufferLength ) {
+          numBytesAvailable = responseCharBufferLength;
+        }
+        uint32_t numBytesReadToBuffer = stream->readBytes( responseCharBuffer, numBytesAvailable );
+        actualResponseLength += numBytesAvailable;
+
+        for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
+          responseCurrChar = responseCharBuffer[responseCurrCharIndex];
+
+          //response trimming to reduce heap size start
+          if( responseCurrChar == '\"' ) {
+            jsonStringFound = !jsonStringFound;
+            continue;
+          }
+          if( !jsonStringFound ) continue;
+          regionToAlarmStatus[String(jsonRegionIndex)] = responseCurrChar == 'A' || responseCurrChar == 'P'; //A - активна в усій області; P - часткова тривога в районах чи громадах; N - немає тривоги
+          //aiProcessServerData( String( jsonRegionIndex ), responseCurrChar == 'A' || responseCurrChar == 'P' ); //A - активна в усій області; P - часткова тривога в районах чи громадах; N - немає тривоги
+          jsonRegionIndex++;
+          //response trimming to reduce heap size end
+        }
+
+        //if( numBytesAvailable < responseCharBufferLength ) {
+        //  yield();
+        //}
 
         //if( reportedResponseLength == 0 ) break;
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
-        renderStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+        setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
       } else {
-        renderStripStatus( STRIP_STATUS_OK );
+        setStripStatus( STRIP_STATUS_OK );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | bytes: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else if( httpCode == 304 ) {
-      renderStripStatus( STRIP_STATUS_OK );
+      setStripStatus( STRIP_STATUS_OK );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
     } else if( httpCode == 429 ) {
-      renderStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
+      setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
     } else {
-      renderStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
+      setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
       WiFiClient *stream = httpClient.getStreamPtr();
       while( stream->available() ) {
@@ -1598,7 +1639,7 @@ void aiRetrieveAndProcessServerData() {
       }
     }
   } else {
-    renderStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
+    setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
     Serial.println( F(" ERROR: ") + httpClient.errorToString( httpCode ) );
   }
 
@@ -1683,10 +1724,10 @@ const char* HTML_INPUT_RANGE = "range";
 
 String getHtmlInput( String label, const char* type, const char* value, const char* elId, const char* elName, uint8_t minLength, uint8_t maxLength, bool isRequired, bool isChecked ) {
   return ( (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0 || strcmp(type, HTML_INPUT_COLOR) == 0 || strcmp(type, HTML_INPUT_RANGE) == 0) ? getHtmlLabel( label, elId, true ) : "" ) +
-    F("<input") +
-    F(" type=\"") + type + "\"" +
-    F(" id=\"") + String(elId) + "\"" +
-    F(" name=\"") + String(elName) + "\"" +
+    F("<input"
+      " type=\"") + type + F("\""
+      " id=\"") + String(elId) + F("\""
+      " name=\"") + String(elName) + "\"" +
       ( maxLength > 0 && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ? F(" maxLength=\"") + String(maxLength) + "\"" : "" ) +
       ( (strcmp(type, HTML_INPUT_CHECKBOX) != 0) ? F(" value=\"") + String(value) + "\"" : "" ) +
       ( isRequired && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ? F(" required") : F("") ) +
@@ -2039,10 +2080,9 @@ void createWebServer() {
 
 //setup and main loop
 void setup() {
-  Serial.begin( 115200 );
+  Serial.begin( 9600 );
   initInternalLed();
   initEeprom();
-  //resetEepromData(); //for testing
   loadEepromData();
   initStrip();
   initVariables();
@@ -2123,5 +2163,5 @@ void loop() {
   }
 
   isFirstLoopRun = false;
-  delay(10); //https://www.tablix.org/~avian/blog/archives/2022/08/saving_power_on_an_esp8266_web_server_using_delays/
+  delay(2); //https://www.tablix.org/~avian/blog/archives/2022/08/saving_power_on_an_esp8266_web_server_using_delays/
 }
