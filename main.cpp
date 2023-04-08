@@ -3,16 +3,23 @@
 #include <vector>
 #include <map>
 
+#ifdef ESP8266
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
-
 #include <ESP8266HTTPClient.h>
+#else //ESP32 or ESP32S2
+#include <WiFi.h>
+#include <WebServer.h>
+#include <HTTPUpdateServer.h>
+#include <HTTPClient.h>
+#endif
+
+#include <DNSServer.h> //for Captive Portal
 #include <WiFiClient.h>
 
 #include <NTPClient.h>
 #include <WiFiUdp.h>
-
 #include <time.h>
 #include <math.h>
 #include <EEPROM.h>
@@ -23,7 +30,7 @@ const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
 
 //wifi access point configuration
 const char* getWiFiAccessPointSsid() { const char* result = "Air Raid Monitor"; return result; };
-const char* getWiFiAccessPointPassword() { const char* result = "12345678"; return result; };
+const char* getWiFiAccessPointPassword() { const char* result = "1029384756"; return result; };
 const IPAddress getWiFiAccessPointIp() { IPAddress result( 192, 168, 1, 1 ); return result; };
 const IPAddress getWiFiAccessPointNetMask() { IPAddress result( 255, 255, 255, 0 ); return result; };
 const uint32_t TIMEOUT_AP = 180000;
@@ -40,7 +47,11 @@ const uint16_t TIMEOUT_CONNECT_WEB = 60000;
 //addressable led strip confg
 const int8_t STRIP_STATUS_LED_INDEX = 0; //-1 if you don't want status led
 const uint8_t STRIP_LED_COUNT = 25 + ( STRIP_STATUS_LED_INDEX < 0 ? 0 : 1 );
+#ifdef ESP8266
 const uint8_t STRIP_PIN = 0;
+#else //ESP32 or ESP32S2
+const uint8_t STRIP_PIN = 18;
+#endif
 const uint16_t DELAY_STRIP_ANIMATION = 500; //led animation speed, in ms
 
 //addressable led strip status led colors confg
@@ -61,6 +72,11 @@ const uint32_t RAID_ALARM_STATUS_COLOR_UNKNOWN = Adafruit_NeoPixel::Color(0, 0, 
 const uint32_t RAID_ALARM_STATUS_COLOR_BLACK = Adafruit_NeoPixel::Color(0, 0, 0);
 
 //internal on-board status led config
+#ifdef ESP8266
+const bool INVERT_INTERNAL_LED = true;
+#else //ESP32 or ESP32S2
+const bool INVERT_INTERNAL_LED = false;
+#endif
 const bool INTERNAL_LED_IS_USED = true;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_LOW = 59800;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
@@ -75,10 +91,12 @@ const uint32_t DELAY_NTP_TIME_SYNC = 3600000;
 
 //raid alarm server selection
 const uint8_t VK_RAID_ALARM_SERVER = 1; //"vadimklimenko.com"; periodically issues standard get request to server and receives large JSON with alarm data. When choosing VK_RAID_ALARM_SERVER, config variables start with VK_
-const uint8_t AC_RAID_ALARM_SERVER = 2; //"tcp.alerts.com.ua"; uses TCP connection and receives alarms instantly, but requires valid API_KEY to function. When choosing AL_RAID_ALARM_SERVER, config variables start with AC_
-const uint8_t AI_RAID_ALARM_SERVER = 3; //"alerts.in.ua"; periodically issues standard get request to server and receives small JSON with alarm data. When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
+const uint8_t UA_RAID_ALARM_SERVER = 2; //"ukrainealarm.com"; periodically issues standard get request to server and receives large JSON with alarm data. When choosing UA_RAID_ALARM_SERVER, config variables start with UA_
+const uint8_t AC_RAID_ALARM_SERVER = 3; //"tcp.alerts.com.ua"; uses TCP connection and receives alarms instantly, but requires valid API_KEY to function. When choosing AL_RAID_ALARM_SERVER, config variables start with AC_
+const uint8_t AI_RAID_ALARM_SERVER = 4; //"alerts.in.ua"; periodically issues standard get request to server and receives small JSON with alarm data. When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
 
 //vk raid alarm server-specific config
+//API: none
 const char* getVkRaidAlarmServerProtocol() { const char* result = "https://"; return result; };
 const char* getVkRaidAlarmServerName() { const char* result = "vadimklimenko.com"; return result; };
 const char* getVkRaidAlarmServerEndpoint() { const char* result = "/map/statuses.json"; return result; };
@@ -115,7 +133,46 @@ const std::vector<std::vector<const char*>> getVkRegions() {
   return result;
 }
 
+//ua raid alarm server-specific config
+//API: https://api.ukrainealarm.com/swagger/index.html
+const char* getUaRaidAlarmServerUrl() { const char* result = "https://api.ukrainealarm.com/api/v3/alerts"; return result; };
+const char* getUaRaidAlarmServerStatusEndpoint() { const char* result = "/status"; return result; };
+const char* getUaRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
+const uint16_t DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 10000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
+
+const std::vector<std::vector<const char*>> getUaRegions() {
+  const std::vector<std::vector<const char*>> result = { //element position is the led index
+    { "11" }, //Закарпатська область
+    { "27" }, //Львівська область
+    { "8" }, //Волинська область
+    { "5" }, //Рівненська область
+    { "3" }, //Хмельницька область
+    { "21" }, //Тернопільська область
+    { "13" }, //Івано-Франківська область
+    { "26" }, //Чернівецька область
+    { "4" }, //Вінницька область
+    { "10" }, //Житомирська область
+    { "14", "31" }, //Київська область, м. Київ
+    { "25" }, //Чернігівська область
+    { "20" }, //Сумська область
+    { "22" }, //Харківська область
+    { "16" }, //Луганська область
+    { "28" }, //Донецька область
+    { "12" }, //Запорізька область
+    { "9" }, //Дніпропетровська область
+    { "19" }, //Полтавська область
+    { "24" }, //Черкаська область
+    { "15" }, //Кіровоградська область
+    { "17" }, //Миколаївська область
+    { "18" }, //Одеська область
+    { "9999" }, //АР Крим
+    { "23" } //Херсонська область
+  };
+  return result;
+}
+
 //al raid alarm server-specific config
+//API: https://alerts.com.ua
 const char* getAcRaidAlarmServerName() { const char* result = "tcp.alerts.com.ua"; return result; };
 const uint16_t getAcRaidAlarmServerPort() { const uint16_t result = 1024; return result; };
 const char* getAcRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
@@ -153,6 +210,7 @@ const std::vector<std::vector<const char*>> getAcRegions() {
 }
 
 //ai raid alarm server-specific config
+//API: https://api.alerts.in.ua/docs
 const char* getAiRaidAlarmServerUrl() { const char* result = "https://api.alerts.in.ua/v1/iot/active_air_raid_alerts_by_oblast.json"; return result; };
 const char* getAiRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
 const uint16_t DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 17000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
@@ -224,17 +282,24 @@ const int8_t RAID_ALARM_STATUS_UNINITIALIZED = -1;
 const int8_t RAID_ALARM_STATUS_INACTIVE = 0;
 const int8_t RAID_ALARM_STATUS_ACTIVE = 1;
 
-uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(91, 0, 0);
-uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(91, 91, 0);
-uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(0, 63, 0);
-uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(91, 91, 0);
+uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(91, 15, 0);
+uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(127, 127, 0);
+uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(15, 63, 0);
+uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(127, 127, 0);
 
 std::map<const char*, int8_t> regionToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
 std::vector<std::vector<uint32_t>> transitionAnimations; //populated automatically
 uint8_t currentRaidAlarmServer = VK_RAID_ALARM_SERVER;
 
+#ifdef ESP8266
 ESP8266WebServer wifiWebServer(80);
 ESP8266HTTPUpdateServer httpUpdater;
+#else //ESP32 or ESP32S2
+WebServer wifiWebServer(80);
+HTTPUpdateServer httpUpdater;
+#endif
+
+DNSServer dnsServer;
 WiFiClient wiFiClient; //used for AC; VK and AI use WiFiClientSecure and init it separately
 WiFiUDP ntpUdp;
 NTPClient timeClient(ntpUdp);
@@ -245,7 +310,7 @@ void initTimeClient( bool isSetup );
 
 //other constants
 const char* getContentLengthHeaderName() { const char* CONTENT_LENGTH = "Content-Length"; return CONTENT_LENGTH; }
-const char* getTextHtmlPage() { const char* TEXT_HTML_PAGE = "text/html"; return TEXT_HTML_PAGE; }
+const char* getContentTypeTextHtml() { const char* TEXT_HTML_PAGE = "text/html"; return TEXT_HTML_PAGE; }
 
 
 
@@ -265,6 +330,8 @@ const std::vector<std::vector<const char*>> getRegions() {
   switch( currentRaidAlarmServer ) {
     case VK_RAID_ALARM_SERVER:
       return getVkRegions();
+    case UA_RAID_ALARM_SERVER:
+      return getUaRegions();
     case AC_RAID_ALARM_SERVER:
       return getAcRegions();
     case AI_RAID_ALARM_SERVER:
@@ -542,15 +609,17 @@ void createAccessPoint() {
   apStartedMillis = millis();
   Serial.print( F("Creating WiFi AP...") );
   WiFi.softAPConfig( getWiFiAccessPointIp(), getWiFiAccessPointIp(), getWiFiAccessPointNetMask() );
-  WiFi.softAP( getWiFiAccessPointSsid(), getWiFiAccessPointPassword(), 0, false );
+  WiFi.softAP( ( String( getWiFiAccessPointSsid() ) + " " + String( ESP.getChipId() ) ).c_str(), getWiFiAccessPointPassword(), 0, false );
   IPAddress accessPointIp = WiFi.softAPIP();
-  Serial.println( F(" done | IP: ") + accessPointIp.toString() );
+  dnsServer.start( 53, "*", accessPointIp );
+  Serial.println( String( F(" done | IP: ") ) + accessPointIp.toString() );
 }
 
 void shutdownAccessPoint() {
   if( !isApInitialized ) return;
   isApInitialized = false;
   Serial.print( F("Shutting down WiFi AP...") );
+  dnsServer.stop();
   WiFi.softAPdisconnect( true );
   Serial.println( F(" done") );
 }
@@ -562,7 +631,7 @@ bool isLedDimmingNightActive() {
 }
 
 uint8_t getLedDimmingNightCoeff() {
-  return  stripLedBrightnessDimmingNight + ( ( isNightModeTest || ( isNightMode && !isUserAwake ) ) ? 0 : ( ( 255 + 2 * stripLedBrightnessDimmingNight ) / 3 ) );
+  return  stripLedBrightnessDimmingNight + ( ( isNightModeTest || ( isNightMode && !isUserAwake ) ) ? 0 : ( ( 255 + stripLedBrightnessDimmingNight ) / 2 ) );
 }
 
 void renderStrip() {
@@ -693,7 +762,7 @@ void initStrip() {
 }
 
 //internal led functionality
-uint8_t internalLedStatus = LOW;
+uint8_t internalLedStatus = HIGH;
 
 uint8_t getInternalLedStatus() {
    return internalLedStatus;
@@ -701,11 +770,12 @@ uint8_t getInternalLedStatus() {
 
 void setInternalLedStatus( uint8_t status ) {
   internalLedStatus = status;
+
   if( INTERNAL_LED_IS_USED ) {
     if( isNightMode ) {
-      digitalWrite( LED_BUILTIN, HIGH );
+      digitalWrite( LED_BUILTIN, INVERT_INTERNAL_LED ? HIGH : LOW );
     } else {
-      digitalWrite( LED_BUILTIN, status );
+      digitalWrite( LED_BUILTIN, INVERT_INTERNAL_LED ? ( status == HIGH ? LOW : HIGH ) : status );
     }
   }
 }
@@ -743,9 +813,9 @@ const String getWiFiStatusText( wl_status_t status ) {
 void disconnectFromWiFi( bool erasePreviousCredentials ) {
   wl_status_t wifiStatus = WiFi.status();
   if( wifiStatus != WL_DISCONNECTED && wifiStatus != WL_IDLE_STATUS ) {
-    Serial.print( F("Disconnecting from WiFi '") + WiFi.SSID() + F("'...") );
+    Serial.print( String( F("Disconnecting from WiFi '") ) + WiFi.SSID() + String( F("'...") ) );
     uint8_t previousInternalLedStatus = getInternalLedStatus();
-    setInternalLedStatus( LOW );
+    setInternalLedStatus( HIGH );
     WiFi.disconnect( false, erasePreviousCredentials );
     delay( 10 );
     while( true ) {
@@ -762,12 +832,12 @@ void disconnectFromWiFi( bool erasePreviousCredentials ) {
 void processWiFiConnection() {
   wl_status_t wifiStatus = WiFi.status();
   if( WiFi.isConnected() ) {
-    Serial.println( F(" WiFi status: ") + getWiFiStatusText( wifiStatus ) );
+    Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
     setStripStatus( STRIP_STATUS_OK );
     shutdownAccessPoint();
     forceRefreshData();
   } else if( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) {
-    Serial.println( F(" WiFi status: ") + getWiFiStatusText( wifiStatus ) );
+    Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
     setStripStatus( STRIP_STATUS_WIFI_ERROR );
   }
 }
@@ -777,7 +847,7 @@ void processWiFiConnectionWithWait() {
   uint8_t previousInternalLedStatus = getInternalLedStatus();
   while( true ) {
     renderStripStatus( STRIP_STATUS_WIFI_CONNECTING );
-    setInternalLedStatus( LOW );
+    setInternalLedStatus( HIGH );
     delay( 1000 );
     Serial.print( "." );
     wl_status_t wifiStatus = WiFi.status();
@@ -789,7 +859,7 @@ void processWiFiConnectionWithWait() {
       forceRefreshData();
       break;
     } else if( ( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) && ( ( millis() - wiFiConnectStartedMillis ) >= TIMEOUT_CONNECT_WIFI ) ) {
-      Serial.println( F(" ERROR: ") + getWiFiStatusText( wifiStatus ) );
+      Serial.println( String( F(" ERROR: ") ) + getWiFiStatusText( wifiStatus ) );
       renderStripStatus( STRIP_STATUS_WIFI_ERROR );
       setInternalLedStatus( previousInternalLedStatus );
       disconnectFromWiFi( false );
@@ -806,7 +876,7 @@ void connectToWiFi( bool forceConnect, bool tryNewCredentials ) { //wifi creds a
   }
 
   if( forceConnect || tryNewCredentials ) {
-    Serial.print( F("Connecting to WiFi '") + String(wiFiClientSsid) + "'..." );
+    Serial.print( String( F("Connecting to WiFi '") ) + String( wiFiClientSsid ) + "'..." );
     WiFi.hostname( getWiFiHostName() );
     if( tryNewCredentials ) {
       WiFi.begin( wiFiClientSsid, wiFiClientPassword ); //when calling WiFi.begin( ssid, pwd ), credentials are stored in NVM, no matter if they are the same or differ
@@ -846,7 +916,7 @@ void initTimeClient( bool canWait ) {
       if( WiFi.isConnected() ) {
         isTimeClientInitialised = true;
         timeClient.setUpdateInterval( DELAY_NTP_TIME_SYNC );
-        Serial.print( F("Starting NTP Client...") );
+        Serial.print( F("Starting NTP client...") );
         timeClient.begin();
         timeClient.update();
         if( canWait && !timeClient.isTimeSet() ) {
@@ -862,7 +932,7 @@ void initTimeClient( bool canWait ) {
   } else {
     if( isTimeClientInitialised ) {
       isTimeClientInitialised = false;
-      Serial.println( F("Stopping NTP Client...") );
+      Serial.println( F("Stopping NTP client...") );
       timeClient.end();
     }
   }
@@ -1138,12 +1208,17 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
 
 //alarms data retrieval and processing
 void getIpAddress( const char* serverName, IPAddress& ipAddress ) {
+  #ifdef ESP8266
   if( ipAddress.isSet() ) return;
-  Serial.print( F("Resolving IP for '") + String( serverName ) + F("'...") );
+  #else //ESP32 or ESP32S2
+  if( ipAddress ) return;
+  #endif
+
+  Serial.print( String( F("Resolving IP for '") ) + String( serverName ) + String( F("'...") ) );
   renderStripStatus( STRIP_STATUS_SERVER_DNS_PROCESSING );
   if( WiFi.hostByName( serverName, ipAddress ) ) {
     renderStripStatus( STRIP_STATUS_OK );
-    Serial.print( F(" done | IP: ") + ipAddress.toString() );
+    Serial.print( String( F(" done | IP: ") ) + ipAddress.toString() );
   } else {
     renderStripStatus( STRIP_STATUS_SERVER_DNS_ERROR );
     Serial.println( F(" ERROR") );
@@ -1171,7 +1246,7 @@ void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
         break;
       } else {
         isParseError = true;
-        Serial.println( F("ERROR: JSON data processing failed: region ") + String( region ) + F(" not found") );
+        Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + String( region ) + String( F(" not found") ) );
       }
     }
   }
@@ -1199,12 +1274,15 @@ void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
 }*/
 
 void vkRetrieveAndProcessServerData() {
-  std::map<String, bool> regionToAlarmStatus; //map to hole full region data, is not needed when single region at a time is processed
-
   WiFiClientSecure wiFiClient;
-  wiFiClient.setBufferSizes( 1536, 512 ); //1369 is received if buffer is empty
   wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
   wiFiClient.setInsecure();
+
+  #ifdef ESP8266
+  wiFiClient.setBufferSizes( 1536, 512 ); //1369 is received if buffer is empty
+  #else //ESP32 or ESP32S2
+  
+  #endif
 
   HTTPClient httpClient;
   String serverUrl = String( getVkRaidAlarmServerProtocol() ) + String( getVkRaidAlarmServerName() ) + String( getVkRaidAlarmServerEndpoint() );
@@ -1217,18 +1295,19 @@ void vkRetrieveAndProcessServerData() {
 
   renderStripStatus( STRIP_STATUS_PROCESSING );
   uint8_t previousInternalLedStatus = getInternalLedStatus();
-  setInternalLedStatus( LOW );
+  setInternalLedStatus( HIGH );
 
   const char* headerKeys[] = { getContentLengthHeaderName() };
   httpClient.collectHeaders( headerKeys, 1 );
 
-  Serial.print( F("Retrieving data... heap: ") + String( ESP.getFreeHeap() ) );
+  std::map<String, bool> regionToAlarmStatus; //map to hold full region data, is not needed when single region at a time is processed
   unsigned long processingTimeStartMillis = millis();
+  Serial.print( String( F("Retrieving data... heap: ") ) + String( ESP.getFreeHeap() ) );
   int16_t httpCode = httpClient.GET();
 
   if( httpCode > 0 ) {
+    Serial.print( "-" + String( ESP.getFreeHeap() ) );
     if( httpCode == 200 ) {
-      Serial.print( "-" + String( ESP.getFreeHeap() ) );
       unsigned long httpRequestIssuedMillis = millis(); 
       uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
       bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
@@ -1272,12 +1351,12 @@ void vkRetrieveAndProcessServerData() {
           numBytesAvailable = responseCharBufferLength;
         }
         uint32_t numBytesReadToBuffer = stream->readBytes( responseCharBuffer, numBytesAvailable );
-        actualResponseLength += numBytesAvailable;
+        actualResponseLength += numBytesReadToBuffer;
 
         for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
           responseCurrChar = responseCharBuffer[responseCurrCharIndex];
 
-          //response trimming to reduce heap size start
+          //response processing start
           if( currObjectLevel == 3 && enabledObjectNameFound && ( responseCurrChar == ',' || responseCurrChar == '}' ) ) {
             enabledObjectNameFound = false;
             currCharComparedIndex = 0;
@@ -1339,7 +1418,7 @@ void vkRetrieveAndProcessServerData() {
               currCharComparedIndex = 0;
             }
           }
-          //response trimming to reduce heap size end
+          //response processing end
         }
 
         //if( numBytesAvailable < responseCharBufferLength ) {
@@ -1354,7 +1433,7 @@ void vkRetrieveAndProcessServerData() {
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | bytes ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
@@ -1364,10 +1443,11 @@ void vkRetrieveAndProcessServerData() {
         char c = stream->read();
         Serial.write(c);
       }
+      Serial.println();
     }
   } else {
     setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
-    Serial.println( F(" ERROR: ") + httpClient.errorToString( httpCode ) );
+    Serial.println( String( F(" ERROR: ") ) + httpClient.errorToString( httpCode ) );
   }
 
   httpClient.end();
@@ -1378,6 +1458,521 @@ void vkRetrieveAndProcessServerData() {
   vkProcessServerData( regionToAlarmStatus );
 }
 
+//functions for UA server
+void uaProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
+  bool isParseError = false;
+  const std::vector<std::vector<const char*>>& allRegions = getRegions();
+  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
+    const std::vector<const char*>& regions = allRegions[ledIndex];
+    bool isRegionFound = false;
+    for( const char* region : regions ) {
+      for( const auto& receivedRegionItem : regionToAlarmStatus ) {
+        const char* receivedRegionName = receivedRegionItem.first.c_str();
+        if( strcmp( region, receivedRegionName ) == 0 ) {
+          isRegionFound = true;
+          bool isAlarmEnabled = receivedRegionItem.second;
+          processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
+          break;
+        }
+      }
+      if( !isRegionFound ) { //API sends only active alarms, so if region was not found, then alarm status is inactive
+        bool isAlarmEnabled = false;
+        processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
+        break;
+      }
+    }
+  }
+  if( isParseError ) {
+    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+  }
+}
+
+uint64_t uaLastActionData = 0;
+bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
+  bool isDataChanged = false;
+
+  wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
+  wiFiClient.setInsecure();
+
+  #ifdef ESP8266
+  wiFiClient.setBufferSizes( 512, 512 );
+  #else //ESP32 or ESP32S2
+
+  #endif
+
+  HTTPClient httpClient;
+  httpClient.begin( wiFiClient, String( getUaRaidAlarmServerUrl() ) + String( getUaRaidAlarmServerStatusEndpoint() ) );
+  httpClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
+  httpClient.setFollowRedirects( HTTPC_STRICT_FOLLOW_REDIRECTS );
+  httpClient.addHeader( F("Authorization"), String( getUaRaidAlarmServerApiKey() ) );
+  httpClient.addHeader( F("Cache-Control"), F("no-cache") );
+  httpClient.addHeader( F("Connection"), F("close") );
+
+  renderStripStatus( STRIP_STATUS_PROCESSING );
+  uint8_t previousInternalLedStatus = getInternalLedStatus();
+  setInternalLedStatus( HIGH );
+
+  const char* headerKeys[] = { getContentLengthHeaderName() };
+  httpClient.collectHeaders( headerKeys, 1 );
+
+  Serial.print( String( F("Retrieving status... heap: ") ) + String( ESP.getFreeHeap() ) );
+  unsigned long processingTimeStartMillis = millis();
+  int16_t httpCode = httpClient.GET();
+
+  if( httpCode > 0 ) {
+    if( httpCode == 200 ) {
+      Serial.print( "-" + String( ESP.getFreeHeap() ) );
+      unsigned long httpRequestIssuedMillis = millis(); 
+      uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
+      bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
+      uint32_t reportedResponseLength = 0;
+      if( httpClient.hasHeader( getContentLengthHeaderName() ) ) {
+        String reportedResponseLengthValue = httpClient.header( getContentLengthHeaderName() );
+        if( reportedResponseLengthValue.length() > 0 ) {
+          reportedResponseLength = reportedResponseLengthValue.toInt();
+        }
+      }
+      uint32_t actualResponseLength = 0;
+      bool endOfTransmission = false;
+
+      //variables used for response trimming to redule heap size start
+      uint8_t currObjectLevel = 0;
+
+      const char* lastActionIndexKey = "\"lastActionIndex\":";
+      const uint8_t lastActionIndexKeyMaxIndex = strlen(lastActionIndexKey) - 1;
+      bool isLastActionIndexKeyFound = false;
+      uint32_t lastActionIndexKeyCurrCharIndex = 0;
+      bool isLastActionIndexValue = false;
+      String lastActionIndexValue = "";
+      //variables used for response trimming to redule heap size end
+
+      const uint16_t responseCharBufferLength = 50;
+      char responseCharBuffer[responseCharBufferLength];
+      char responseCurrChar;
+
+      
+      WiFiClient *stream = httpClient.getStreamPtr();
+      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
+        uint32_t numBytesAvailable = stream->available();
+        if( numBytesAvailable == 0 ) {
+          yield();
+          continue;
+        }
+
+        if( numBytesAvailable > responseCharBufferLength ) {
+          numBytesAvailable = responseCharBufferLength;
+        }
+        uint32_t numBytesReadToBuffer = stream->readBytes( responseCharBuffer, numBytesAvailable );
+        actualResponseLength += numBytesReadToBuffer;
+
+        for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
+          responseCurrChar = responseCharBuffer[responseCurrCharIndex];
+
+          if( currObjectLevel == 1 && responseCurrChar == '}' ) { //this helps to find the end of response, since server does not send content-length, and its long to wait for timeout delay
+            endOfTransmission = true;
+          }
+
+          //response processing start
+          if( responseCurrChar == '{' ) {
+            currObjectLevel++;
+            continue;
+          }
+          if( responseCurrChar == '}' ) {
+            if( currObjectLevel == 1 ) {
+              if( lastActionIndexValue != "" ) {
+                uint64_t newLastActionIndex = strtoull( lastActionIndexValue.c_str(), NULL, 10 );
+                if( newLastActionIndex == 0 || uaLastActionData != newLastActionIndex ) {
+                  isDataChanged = true;
+                  uaLastActionData = newLastActionIndex;
+                }
+              } else {
+                isDataChanged = true;
+              }
+              lastActionIndexValue = "";
+              isLastActionIndexKeyFound = false;
+            }
+
+            currObjectLevel--;
+            continue;
+          }
+
+          if( currObjectLevel == 1 ) {
+            if( isLastActionIndexKeyFound ) {
+              if( responseCurrChar == ' ' ) continue;
+              isLastActionIndexValue = responseCurrChar != '}' && responseCurrChar != ']' && responseCurrChar != '\n' && responseCurrChar != '\r';
+              if( isLastActionIndexValue ) {
+                lastActionIndexValue += responseCurrChar;
+              } else {
+                isLastActionIndexKeyFound = false;
+              }
+              continue;
+            } else if( lastActionIndexValue == "" ) {
+              if( lastActionIndexKey[lastActionIndexKeyCurrCharIndex] == responseCurrChar ) {
+                if( lastActionIndexKeyCurrCharIndex == lastActionIndexKeyMaxIndex ) {
+                  lastActionIndexKeyCurrCharIndex = 0;
+                  isLastActionIndexKeyFound = true;
+                } else {
+                  lastActionIndexKeyCurrCharIndex++;
+                }
+              } else {
+                lastActionIndexKeyCurrCharIndex = 0;
+              }
+            }
+          }
+          //response processing end
+        }
+
+        //if( numBytesAvailable < responseCharBufferLength ) {
+        //  yield();
+        //}
+
+        //if( reportedResponseLength == 0 ) break;
+      }
+
+      if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
+        setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
+      } else {
+        setStripStatus( STRIP_STATUS_OK );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+      }
+    } else if( httpCode == 304 ) {
+      setStripStatus( STRIP_STATUS_OK );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
+    } else if( httpCode == 429 ) {
+      setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
+    } else {
+      setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
+      WiFiClient *stream = httpClient.getStreamPtr();
+      while( stream->available() ) {
+        char c = stream->read();
+        Serial.write(c);
+      }
+      Serial.println();
+    }
+  } else {
+    setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
+    Serial.println( String( F(" ERROR: ") ) + httpClient.errorToString( httpCode ) );
+  }
+
+  httpClient.end();
+  wiFiClient.stop();
+  setInternalLedStatus( previousInternalLedStatus );
+
+  return isDataChanged;
+}
+
+void uaRetrieveAndProcessServerData() {
+  WiFiClientSecure wiFiClient;
+
+  if( !uaRetrieveAndProcessStatusChangedData( wiFiClient ) ) {
+    return;
+  }
+
+  wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
+  wiFiClient.setInsecure();
+
+  #ifdef ESP8266
+  wiFiClient.setBufferSizes( 1536, 512 );
+  #else //ESP32 or ESP32S2
+
+  #endif
+
+  HTTPClient httpClient;
+  httpClient.begin( wiFiClient, getUaRaidAlarmServerUrl() );
+  httpClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
+  httpClient.setFollowRedirects( HTTPC_STRICT_FOLLOW_REDIRECTS );
+  httpClient.addHeader( F("Authorization"), String( getUaRaidAlarmServerApiKey() ) );
+  httpClient.addHeader( F("Cache-Control"), F("no-cache") );
+  httpClient.addHeader( F("Connection"), F("close") );
+
+  renderStripStatus( STRIP_STATUS_PROCESSING );
+  uint8_t previousInternalLedStatus = getInternalLedStatus();
+  setInternalLedStatus( HIGH );
+
+  const char* headerKeys[] = { getContentLengthHeaderName() };
+  httpClient.collectHeaders( headerKeys, 1 );
+
+  std::map<String, bool> regionToAlarmStatus; //map to hold full region data, is not needed when single region at a time is processed
+  unsigned long processingTimeStartMillis = millis();
+  Serial.print( String( F("Retrieving data... heap: ") ) + String( ESP.getFreeHeap() ) );
+  int16_t httpCode = httpClient.GET();
+
+  if( httpCode > 0 ) {
+    if( httpCode == 200 ) {
+      Serial.print( "-" + String( ESP.getFreeHeap() ) );
+      unsigned long httpRequestIssuedMillis = millis(); 
+      uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
+      bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
+      uint32_t reportedResponseLength = 0;
+      if( httpClient.hasHeader( getContentLengthHeaderName() ) ) {
+        String reportedResponseLengthValue = httpClient.header( getContentLengthHeaderName() );
+        if( reportedResponseLengthValue.length() > 0 ) {
+          reportedResponseLength = reportedResponseLengthValue.toInt();
+        }
+      }
+      uint32_t actualResponseLength = 0;
+      bool endOfTransmission = false;
+
+      //variables used for response trimming to redule heap size start
+      uint8_t currObjectLevel = 0;
+
+      const char* regionIdRootKey = "\"regionId\":";
+      const uint8_t regionIdRootKeyMaxIndex = strlen(regionIdRootKey) - 1;
+      bool isRegionIdRootKeyFound = false;
+      uint32_t regionIdRootKeyCurrCharIndex = 0;
+      bool isRegionIdRootValue = false;
+      String regionIdRootValue = "";
+
+      const char* activeAlertsObjectKey = "\"activeAlerts\":";
+      const uint8_t activeAlertsObjectKeyMaxIndex = strlen(activeAlertsObjectKey) - 1;
+      bool isActiveAlertsObjectKeyFound = false;
+      uint32_t activeAlertsObjectKeyCurrCharIndex = 0;
+
+      const char* regionIdKey = "\"regionId\":";
+      const uint8_t regionIdKeyMaxIndex = strlen(regionIdKey) - 1;
+      bool isRegionIdKeyFound = false;
+      uint32_t regionIdKeyCurrCharIndex = 0;
+      bool isRegionIdValue = false;
+      String regionIdValue = "";
+
+      const char* regionTypeKey = "\"regionType\":";
+      const uint8_t regionTypeKeyMaxIndex = strlen(regionTypeKey) - 1;
+      bool isRegionTypeKeyFound = false;
+      uint32_t regionTypeKeyCurrCharIndex = 0;
+      bool isRegionTypeValue = false;
+      String regionTypeValue = "";
+
+      const char* alarmTypeKey = "\"type\":";
+      const uint8_t alarmTypeKeyMaxIndex = strlen(alarmTypeKey) - 1;
+      bool isAlarmTypeKeyFound = false;
+      uint32_t alarmTypeKeyCurrCharIndex = 0;
+      bool isAlarmTypeValue = false;
+      String alarmTypeValue = "";
+      //variables used for response trimming to redule heap size end
+
+      const uint16_t responseCharBufferLength = 256;
+      char responseCharBuffer[responseCharBufferLength];
+      char responseCurrChar;
+      
+      WiFiClient *stream = httpClient.getStreamPtr();
+      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
+        uint32_t numBytesAvailable = stream->available();
+        if( numBytesAvailable == 0 ) {
+          yield();
+          continue;
+        }
+
+        if( numBytesAvailable > responseCharBufferLength ) {
+          numBytesAvailable = responseCharBufferLength;
+        }
+        uint32_t numBytesReadToBuffer = stream->readBytes( responseCharBuffer, numBytesAvailable );
+        actualResponseLength += numBytesReadToBuffer;
+
+        for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
+          responseCurrChar = responseCharBuffer[responseCurrCharIndex];
+
+          if( currObjectLevel == 0 && responseCurrChar == ']' ) { //this helps to find the end of response, since server does not send content-length, and its long to wait for timeout delay
+            endOfTransmission = true;
+          }
+
+          //response processing start
+          if( responseCurrChar == '{' ) {
+            currObjectLevel++;
+            continue;
+          }
+          if( responseCurrChar == '}' ) {
+            if( currObjectLevel == 1 ) {
+              regionIdRootValue = "";
+            } else if( currObjectLevel == 2 ) {
+              if( isActiveAlertsObjectKeyFound ) {
+                if( regionIdRootValue == regionIdValue && regionTypeValue == "State" && alarmTypeValue == "AIR" ) {
+                  regionToAlarmStatus[ regionIdRootValue ] = true;
+                }
+                regionIdValue = "";
+                regionTypeValue = "";
+                alarmTypeValue = "";
+              }
+            }
+
+            currObjectLevel--;
+            continue;
+          }
+
+          if( responseCurrChar == '[' ) {
+            continue;
+          }
+          if( responseCurrChar == ']' ) {
+            if( currObjectLevel == 1 ) {
+              if( isActiveAlertsObjectKeyFound ) {
+                isActiveAlertsObjectKeyFound = false;
+              }
+            }
+            continue;
+          }
+
+          if( currObjectLevel == 1 ) {
+            if( isRegionIdRootKeyFound ) {
+              if( responseCurrChar == '\"' ) {
+                isRegionIdRootValue = !isRegionIdRootValue;
+                continue;
+              }
+              if( isRegionIdRootValue ) {
+                regionIdRootValue += responseCurrChar;
+              } else {
+                isRegionIdRootKeyFound = false;
+              }
+              continue;
+            } else if( regionIdRootValue == "" ) {
+              if( regionIdRootKey[regionIdRootKeyCurrCharIndex] == responseCurrChar ) {
+                if( regionIdRootKeyCurrCharIndex == regionIdRootKeyMaxIndex ) {
+                  regionIdRootKeyCurrCharIndex = 0;
+                  isRegionIdRootKeyFound = true;
+                } else {
+                  regionIdRootKeyCurrCharIndex++;
+                }
+              } else {
+                regionIdRootKeyCurrCharIndex = 0;
+              }
+            }
+
+            if( !isActiveAlertsObjectKeyFound ) {
+              if( activeAlertsObjectKey[activeAlertsObjectKeyCurrCharIndex] == responseCurrChar ) {
+                if( activeAlertsObjectKeyCurrCharIndex == activeAlertsObjectKeyMaxIndex ) {
+                  activeAlertsObjectKeyCurrCharIndex = 0;
+                  isActiveAlertsObjectKeyFound = true;
+                } else {
+                  activeAlertsObjectKeyCurrCharIndex++;
+                }
+              } else {
+                activeAlertsObjectKeyCurrCharIndex = 0;
+              }
+            }
+
+          } else if( currObjectLevel == 2 ) {
+            if( isActiveAlertsObjectKeyFound ) {
+
+              if( isRegionIdKeyFound ) {
+                if( responseCurrChar == '\"' ) {
+                  isRegionIdValue = !isRegionIdValue;
+                  continue;
+                }
+                if( isRegionIdValue ) {
+                  regionIdValue += responseCurrChar;
+                } else {
+                  isRegionIdKeyFound = false;
+                }
+                continue;
+              } else if( regionIdValue == "" ) {
+                if( regionIdKey[regionIdKeyCurrCharIndex] == responseCurrChar ) {
+                  if( regionIdKeyCurrCharIndex == regionIdKeyMaxIndex ) {
+                    regionIdKeyCurrCharIndex = 0;
+                    isRegionIdKeyFound = true;
+                  } else {
+                    regionIdKeyCurrCharIndex++;
+                  }
+                } else {
+                  regionIdKeyCurrCharIndex = 0;
+                }
+              }
+
+              if( isRegionTypeKeyFound ) {
+                if( responseCurrChar == '\"' ) {
+                  isRegionTypeValue = !isRegionTypeValue;
+                  continue;
+                }
+                if( isRegionTypeValue ) {
+                  regionTypeValue += responseCurrChar;
+                } else {
+                  isRegionTypeKeyFound = false;
+                }
+                continue;
+              } else if( regionTypeValue == "" ) {
+                if( regionTypeKey[regionTypeKeyCurrCharIndex] == responseCurrChar ) {
+                  if( regionTypeKeyCurrCharIndex == regionTypeKeyMaxIndex ) {
+                    regionTypeKeyCurrCharIndex = 0;
+                    isRegionTypeKeyFound = true;
+                  } else {
+                    regionTypeKeyCurrCharIndex++;
+                  }
+                } else {
+                  regionTypeKeyCurrCharIndex = 0;
+                }
+              }
+
+              if( isAlarmTypeKeyFound ) {
+                if( responseCurrChar == '\"' ) {
+                  isAlarmTypeValue = !isAlarmTypeValue;
+                  continue;
+                }
+                if( isAlarmTypeValue ) {
+                  alarmTypeValue += responseCurrChar;
+                } else {
+                  isAlarmTypeKeyFound = false;
+                }
+                continue;
+              } else if( alarmTypeValue == "" ) {
+                if( alarmTypeKey[alarmTypeKeyCurrCharIndex] == responseCurrChar ) {
+                  if( alarmTypeKeyCurrCharIndex == alarmTypeKeyMaxIndex ) {
+                    alarmTypeKeyCurrCharIndex = 0;
+                    isAlarmTypeKeyFound = true;
+                  } else {
+                    alarmTypeKeyCurrCharIndex++;
+                  }
+                } else {
+                  alarmTypeKeyCurrCharIndex = 0;
+                }
+              }
+
+            }
+          }
+          //response processing end
+        }
+
+        //if( numBytesAvailable < responseCharBufferLength ) {
+        //  yield();
+        //}
+
+        //if( reportedResponseLength == 0 ) break;
+      }
+
+      if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
+        setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
+      } else {
+        setStripStatus( STRIP_STATUS_OK );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+      }
+    } else if( httpCode == 304 ) {
+      setStripStatus( STRIP_STATUS_OK );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
+    } else if( httpCode == 429 ) {
+      setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
+    } else {
+      setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
+      WiFiClient *stream = httpClient.getStreamPtr();
+      while( stream->available() ) {
+        char c = stream->read();
+        Serial.write(c);
+      }
+      Serial.println();
+    }
+  } else {
+    setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
+    Serial.println( String( F(" ERROR: ") ) + httpClient.errorToString( httpCode ) );
+  }
+
+  httpClient.end();
+  wiFiClient.stop();
+  setInternalLedStatus( previousInternalLedStatus );
+
+  if( regionToAlarmStatus.size() == 0 ) return;
+  uaProcessServerData( regionToAlarmStatus );
+}
 
 //functions for AC server
 unsigned long acWifiRaidAlarmDataLastProcessedMillis = millis();
@@ -1392,7 +1987,7 @@ bool acProcessServerData( String payload ) {
     acWifiRaidAlarmDataLastProcessedMillis = millis();
 
     uint8_t previousInternalLedStatus = getInternalLedStatus();
-    setInternalLedStatus( LOW );
+    setInternalLedStatus( HIGH );
     renderStripStatus( STRIP_STATUS_PROCESSING );
 
     static String buffer;
@@ -1412,7 +2007,7 @@ bool acProcessServerData( String payload ) {
       } else if( packet == "a:ok" ) {
         Serial.println( F("API key accepted by server") );
       } else if( packet.startsWith( "s:" ) ) { //data packet received in format s:12=1
-        Serial.println( F("Received status packet: ") + packet.substring( packet.indexOf(':') + 1 ) );
+        Serial.println( String( F("Received status packet: ") ) + packet.substring( packet.indexOf(':') + 1 ) );
         String receivedRegionStr = packet.substring( 2, packet.indexOf('=') );
         const char* receivedRegion = receivedRegionStr.c_str();
         bool isAlarmEnabled = packet.substring( packet.indexOf('=') + 1 ) == "1";
@@ -1442,7 +2037,7 @@ bool acRetrieveAndProcessServerData() {
 
   bool doReconnectToServer = false;
   if( wiFiClient.connected() && ( ( millis() - acWifiRaidAlarmDataLastProcessedMillis ) > TIMEOUT_TCP_SERVER_DATA ) ) {
-    Serial.println( F("Server has not sent anything within ") + String(TIMEOUT_TCP_SERVER_DATA) + F("ms. Assuming dead connection. Reconnecting...") );
+    Serial.println( String( F("Server has not sent anything within ") ) + String( TIMEOUT_TCP_SERVER_DATA ) + String( F("ms. Assuming dead connection. Reconnecting...") ) );
     wiFiClient.stop();
     doReconnectToServer = true;
   }
@@ -1451,7 +2046,7 @@ bool acRetrieveAndProcessServerData() {
     doReconnectToServer = false;
     renderStripStatus( STRIP_STATUS_PROCESSING );
     uint8_t previousInternalLedStatus = getInternalLedStatus();
-    setInternalLedStatus( LOW );
+    setInternalLedStatus( HIGH );
     Serial.print( F("Connecting to Raid Alert server...") );
     unsigned long connectToServerRequestedMillis = millis();
     wiFiClient.connect( getAcRaidAlarmServerName(), getAcRaidAlarmServerPort() );
@@ -1531,30 +2126,34 @@ void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
 }*/
 
 void aiRetrieveAndProcessServerData() {
-  std::map<String, bool> regionToAlarmStatus; //map to hole full region data, is not needed when single region at a time is processed
-
   WiFiClientSecure wiFiClient;
-  wiFiClient.setBufferSizes( 512, 512 );
   wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
   wiFiClient.setInsecure();
+
+  #ifdef ESP8266
+  wiFiClient.setBufferSizes( 512, 512 );
+  #else //ESP32 or ESP32S2
+
+  #endif
 
   HTTPClient httpClient;
   httpClient.begin( wiFiClient, getAiRaidAlarmServerUrl() );
   httpClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
   httpClient.setFollowRedirects( HTTPC_STRICT_FOLLOW_REDIRECTS );
-  httpClient.addHeader( F("Authorization"), F("Bearer ") + String( getAiRaidAlarmServerApiKey() ) );
+  httpClient.addHeader( F("Authorization"), String( F("Bearer ") ) + String( getAiRaidAlarmServerApiKey() ) );
   httpClient.addHeader( F("Cache-Control"), F("no-cache") );
   httpClient.addHeader( F("Connection"), F("close") );
 
   renderStripStatus( STRIP_STATUS_PROCESSING );
   uint8_t previousInternalLedStatus = getInternalLedStatus();
-  setInternalLedStatus( LOW );
+  setInternalLedStatus( HIGH );
 
   const char* headerKeys[] = { getContentLengthHeaderName() };
   httpClient.collectHeaders( headerKeys, 1 );
 
-  Serial.print( F("Retrieving data... heap: ") + String( ESP.getFreeHeap() ) );
+  std::map<String, bool> regionToAlarmStatus; //map to hold full region data, is not needed when single region at a time is processed
   unsigned long processingTimeStartMillis = millis();
+  Serial.print( String( F("Retrieving data... heap: ") ) + String( ESP.getFreeHeap() ) );
   int16_t httpCode = httpClient.GET();
 
   if( httpCode > 0 ) {
@@ -1592,12 +2191,12 @@ void aiRetrieveAndProcessServerData() {
           numBytesAvailable = responseCharBufferLength;
         }
         uint32_t numBytesReadToBuffer = stream->readBytes( responseCharBuffer, numBytesAvailable );
-        actualResponseLength += numBytesAvailable;
+        actualResponseLength += numBytesReadToBuffer;
 
         for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
           responseCurrChar = responseCharBuffer[responseCurrCharIndex];
 
-          //response trimming to reduce heap size start
+          //response processing start
           if( responseCurrChar == '\"' ) {
             jsonStringFound = !jsonStringFound;
             continue;
@@ -1606,7 +2205,7 @@ void aiRetrieveAndProcessServerData() {
           regionToAlarmStatus[String(jsonRegionIndex)] = responseCurrChar == 'A' || responseCurrChar == 'P'; //A - активна в усій області; P - часткова тривога в районах чи громадах; N - немає тривоги
           //aiProcessServerData( String( jsonRegionIndex ), responseCurrChar == 'A' || responseCurrChar == 'P' ); //A - активна в усій області; P - часткова тривога в районах чи громадах; N - немає тривоги
           jsonRegionIndex++;
-          //response trimming to reduce heap size end
+          //response processing end
         }
 
         //if( numBytesAvailable < responseCharBufferLength ) {
@@ -1621,7 +2220,7 @@ void aiRetrieveAndProcessServerData() {
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | bytes: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else if( httpCode == 304 ) {
       setStripStatus( STRIP_STATUS_OK );
@@ -1637,10 +2236,11 @@ void aiRetrieveAndProcessServerData() {
         char c = stream->read();
         Serial.write(c);
       }
+      Serial.println();
     }
   } else {
     setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
-    Serial.println( F(" ERROR: ") + httpClient.errorToString( httpCode ) );
+    Serial.println( String( F(" ERROR: ") ) + httpClient.errorToString( httpCode ) );
   }
 
   httpClient.end();
@@ -1658,13 +2258,13 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
     "<meta charset=\"UTF-8\">"
     "<title>Air Raid Alarm Monitor</title>"
     "<style>"
-      ":root{--f:24px;}"
-      "body{margin:0;background-color:#555;font-family:sans-serif;color:#FFF;}"
+      ":root{--f:22px;}"
+      "body{margin:0;background-color:#444;font-family:sans-serif;color:#FFF;}"
       "body,input,button{font-size:var(--f);}"
       ".wrp{width:60%;min-width:460px;max-width:600px;margin:auto;margin-bottom:10px;}"
-      "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.4em;margin-bottom:0.2em;}"
-      ".fx{display:flex;flex-wrap:wrap;margin:auto;margin-top:0.4em;}"
-      ".fx .fi{display:flex;align-items:center;margin-top:0.4em;width:100%;}"
+      "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.3em;margin-bottom:0.3em;}"
+      ".fx{display:flex;flex-wrap:wrap;margin:auto;margin-top:0.3em;}"
+      ".fx .fi{display:flex;align-items:center;margin-top:0.3em;width:100%;}"
       ".fx .fi:first-of-type{margin-top:0;}"
       "label{flex:none;padding-right:0.6em;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
       "input{width:100%;padding:0.1em 0.2em;}"
@@ -1678,22 +2278,26 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       "output{padding-left:0.6em;}"
       "button{width:100%;padding:0.2em;}"
       "a{color:#AAA;}"
-      "a+a{padding-left: 0.6em;}"
+      ".sub+.sub{padding-left:0.6em;}"
       ".ft{margin-top:1em;}"
       ".pl{padding-left:0.6em;}"
-      ".hint{margin:auto;color:#AAA;}"
+      ".lnk{margin:auto;color:#AAA;}"
+      ".i{color:#CCC;margin-left:0.2em;border:1px solid #777;border-radius:50%;background-color:#666;cursor:default;font-size:65%;vertical-align:top;width:1em;height:1em;display:inline-block;text-align:center;}"
+      ".i:before{content:\"i\";position:relative;top:-0.07em;}"
+      ".i:hover{background-color:#777;color:#DDD;}"
       "@media(max-device-width:800px) and (orientation:portrait){:root{--f:4vw;}.wrp{width:94%;max-width:100%;}}"
     "</style>"
   "</head>"
   "<body>"
     "<div class=\"wrp\">"
-      "<h2>Air Raid Alarm Monitor</h2>";
+      "<h2>Air Raid Alarm Monitor<div class=\"lnk\" style=\"font-size:50%;\">By <a href=\"mailto:kurylo.press@gmail.com?subject=Air Raid Alarm Monitor\">Dmytro Kurylo</a></div></h2>";
 const char HTML_PAGE_END[] PROGMEM = "</div>"
   "</body>"
 "</html>";
 
 String getHtmlPage( String pageBody ) {
   String result;
+  result.reserve( strlen_P(HTML_PAGE_START) + pageBody.length() + strlen_P(HTML_PAGE_END) + 1 );
   char c;
   for( uint16_t i = 0; i < strlen_P(HTML_PAGE_START); i++ ) {
     c = pgm_read_byte( &HTML_PAGE_START[i] );
@@ -1708,11 +2312,11 @@ String getHtmlPage( String pageBody ) {
 }
 
 String getHtmlLink( const char* href, String label ) {
-  return F("<a href=\"") + String(href) + "\">" + label + F("</a>");
+  return String( F("<a href=\"") ) + String( href ) + "\">" + label + String( F("</a>") );
 }
 
 String getHtmlLabel( String label, const char* elId, bool addColon ) {
-  return F("<label") + (strlen(elId) > 0 ? F(" for=\"") + String(elId) + "\"" : "") + ">" + label + ( addColon ? ":" : "" ) + F("</label>");
+  return String( F("<label") ) + (strlen(elId) > 0 ? String( F(" for=\"") ) + String( elId ) + "\"" : "") + ">" + label + ( addColon ? ":" : "" ) + String( F("</label>") );
 }
 
 const char* HTML_INPUT_TEXT = "text";
@@ -1724,15 +2328,15 @@ const char* HTML_INPUT_RANGE = "range";
 
 String getHtmlInput( String label, const char* type, const char* value, const char* elId, const char* elName, uint8_t minLength, uint8_t maxLength, bool isRequired, bool isChecked ) {
   return ( (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0 || strcmp(type, HTML_INPUT_COLOR) == 0 || strcmp(type, HTML_INPUT_RANGE) == 0) ? getHtmlLabel( label, elId, true ) : "" ) +
-    F("<input"
-      " type=\"") + type + F("\""
-      " id=\"") + String(elId) + F("\""
+    String( F("<input"
+      " type=\"") ) + type + String( F("\""
+      " id=\"") ) + String(elId) + F("\""
       " name=\"") + String(elName) + "\"" +
-      ( maxLength > 0 && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ? F(" maxLength=\"") + String(maxLength) + "\"" : "" ) +
-      ( (strcmp(type, HTML_INPUT_CHECKBOX) != 0) ? F(" value=\"") + String(value) + "\"" : "" ) +
+      ( maxLength > 0 && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ? String( F(" maxLength=\"") ) + String( maxLength ) + "\"" : "" ) +
+      ( (strcmp(type, HTML_INPUT_CHECKBOX) != 0) ? String( F(" value=\"") ) + String( value ) + "\"" : "" ) +
       ( isRequired && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ? F(" required") : F("") ) +
       ( isChecked && (strcmp(type, HTML_INPUT_RADIO) == 0 || strcmp(type, HTML_INPUT_CHECKBOX) == 0) ? F(" checked") : F("") ) +
-      ( (strcmp(type, HTML_INPUT_RANGE) == 0) ? F(" min=\"") + String(minLength) + F("\" max=\"") + String(maxLength) + F("\" oninput=\"this.nextElementSibling.value=this.value;\"><output>") + String(value) + F("</output") : "" ) +
+      ( (strcmp(type, HTML_INPUT_RANGE) == 0) ? String( F(" min=\"") ) + String( minLength ) + String( F("\" max=\"") ) + String(maxLength) + String( F("\" oninput=\"this.nextElementSibling.value=this.value;\"><output>") ) + String( value ) + String( F("</output") ) : "" ) +
     ">" +
       ( (strcmp(type, HTML_INPUT_TEXT) != 0 && strcmp(type, HTML_INPUT_PASSWORD) != 0 && strcmp(type, HTML_INPUT_COLOR) != 0 && strcmp(type, HTML_INPUT_RANGE) != 0) ? getHtmlLabel( label, elId, false ) : "" );
 }
@@ -1749,6 +2353,7 @@ const char* HTML_PAGE_UPDATE_ENDPOINT = "/update";
 const char* HTML_PAGE_WIFI_SSID_NAME = "ssid";
 const char* HTML_PAGE_WIFI_PWD_NAME = "pwd";
 const char* HTML_PAGE_RAID_SERVER_NAME = "srv";
+const char* HTML_PAGE_RAID_SERVER_UA_NAME = "srvua";
 const char* HTML_PAGE_RAID_SERVER_VK_NAME = "srvvk";
 const char* HTML_PAGE_RAID_SERVER_AC_NAME = "srvac";
 const char* HTML_PAGE_RAID_SERVER_AI_NAME = "srvai";
@@ -1763,56 +2368,66 @@ const char* HTML_PAGE_BRIGHTNESS_NIGHT_NAME = "brtn";
 const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 
 void handleWebServerGet() {
-  wifiWebServer.send( 200, getTextHtmlPage(), getHtmlPage(
-F("<form method=\"POST\">"
+  String content = getHtmlPage(
+String( F("<form method=\"POST\">"
   "<div class=\"fx\">"
     "<h2>Connect to WiFi:</h2>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("SSID Name"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, getWiFiClientSsidNameMaxLength(), true, false ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("SSID Password"), HTML_INPUT_PASSWORD, wiFiClientPassword, HTML_PAGE_WIFI_PWD_NAME, HTML_PAGE_WIFI_PWD_NAME, 0, getWiFiClientSsidPasswordMaxLength(), true, false ) + F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("SSID Name"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, getWiFiClientSsidNameMaxLength(), true, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("SSID Password"), HTML_INPUT_PASSWORD, wiFiClientPassword, HTML_PAGE_WIFI_PWD_NAME, HTML_PAGE_WIFI_PWD_NAME, 0, getWiFiClientSsidPasswordMaxLength(), true, false ) + String( F("</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Data Source:</h2>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) + F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) + String( F("</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Colors:</h2>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("Brightness"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("Alarm Off"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("Alarm On"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("On &rarr; Off"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("Off &rarr; On"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("Night Dimming"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) + F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Brightness"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Alarm Off"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Alarm On"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("On &rarr; Off"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Off &rarr; On"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Night Dimming<span class=\"i\" title=\"Dimming is applied with respect to brightness\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) + String( F("</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Other Settings:</h2>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("Show raid alarms only"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("Show status LED when idle"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + F("</div>"
-    "<div class=\"fi pl\">") + getHtmlInput( F("Party mode (hue shifting)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Show raid alarms only"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Show status LED when idle"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Party mode (hue shifting)<span class=\"i\" title=\"This setting overrides the night mode!\"></span>"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + String( F("</div>"
   "</div>"
   "<div class=\"fx ft\">"
     "<div class=\"fi\"><button type=\"submit\">Apply</button></div>"
   "</div>"
 "</form>"
 "<div class=\"fx ft\">"
-  "") + getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Test Dimming") ) + getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Test LEDs") ) + F(""
-  "<span class=\"hint\"></span>"
-  "") + getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Update FW") + String( getFirmwareVersion() ) ) + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Reboot") ) + F(""
+  "<span>"
+    "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Test Dimming") ) + String( F("<span class=\"i\" title=\"Apply your settings before testing!\"></span></span>"
+    "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Test LEDs") ) + String( F("</span>"
+  "</span>"
+  "<span class=\"lnk\"></span>"
+  "<span>"
+    "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Update FW") ) + String( F("<span class=\"i\" title=\"Current version: ") ) + String( getFirmwareVersion() ) + String( F("\"></span></span>"
+    "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Reboot") ) + String( F("</span>"
+  "</span>"
 "</div>") ) );
+  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
 }
 
 const char HTML_PAGE_FILLUP_START[] PROGMEM = "<style>"
-  "#fill{border:2px solid #FFF;background:#666;}#fill>div{width:0;height:2.5vw;background-color:#FFF;animation:fill ";
+  "#fill{border:2px solid #FFF;background:#666;margin:1em 0;}#fill>div{width:0;height:2.5vw;background-color:#FFF;animation:fill ";
 const char HTML_PAGE_FILLUP_MID[] PROGMEM = "s linear forwards;}"
   "@keyframes fill{0%{width:0;}100%{width:100%;}}"
 "</style>"
-"<div id=\"fill\"><div></div></div>"
+"<div id=\"fill\"><div></div></div>"  
 "<script>document.addEventListener(\"DOMContentLoaded\",()=>{setTimeout(()=>{window.location.href=\"/\";},";
 const char HTML_PAGE_FILLUP_END[] PROGMEM = "000);});</script>";
 
 String getHtmlPageFillup( String animationLength, String redirectLength ) {
   String result;
+  result.reserve( strlen_P(HTML_PAGE_FILLUP_START) + animationLength.length() + strlen_P(HTML_PAGE_FILLUP_MID) + redirectLength.length() + strlen_P(HTML_PAGE_FILLUP_END) + 1 );
   char c;
   for( uint16_t i = 0; i < strlen_P(HTML_PAGE_FILLUP_START); i++ ) {
     c = pgm_read_byte( &HTML_PAGE_FILLUP_START[i] );
@@ -1836,19 +2451,27 @@ void handleWebServerPost() {
   String htmlPageSsidPasswordReceived = wifiWebServer.arg( HTML_PAGE_WIFI_PWD_NAME );
 
   if( htmlPageSsidNameReceived.length() == 0 ) {
-    wifiWebServer.send( 400, getTextHtmlPage(), getHtmlPage( F("<h2>Error: Missing SSID Name</h2>") ) );
+    String content = getHtmlPage( String( F("<h2>Error: Missing SSID Name</h2>") ) );
+    wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+    wifiWebServer.send( 400, getContentTypeTextHtml(), content );
     return;
   }
   if( htmlPageSsidPasswordReceived.length() == 0 ) {
-    wifiWebServer.send( 400, getTextHtmlPage(), getHtmlPage( F("<h2>Error: Missing SSID Password</h2>") ) );
+    String content = getHtmlPage( String( F("<h2>Error: Missing SSID Password</h2>") ) );
+    wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+    wifiWebServer.send( 400, getContentTypeTextHtml(), content );
     return;
   }
   if( htmlPageSsidNameReceived.length() > getWiFiClientSsidNameMaxLength() ) {
-    wifiWebServer.send( 400, getTextHtmlPage(), getHtmlPage( F("<h2>Error: SSID Name exceeds maximum length of ") + String(getWiFiClientSsidNameMaxLength()) + F("</h2>") ) );
+    String content = getHtmlPage( String( F("<h2>Error: SSID Name exceeds maximum length of ") ) + String( getWiFiClientSsidNameMaxLength() ) + String( F("</h2>") ) );
+    wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+    wifiWebServer.send( 400, getContentTypeTextHtml(), content );
     return;
   }
   if( htmlPageSsidPasswordReceived.length() > getWiFiClientSsidPasswordMaxLength() ) {
-    wifiWebServer.send( 400, getTextHtmlPage(), getHtmlPage( F("<h2>Error: SSID Password exceeds maximum length of ") + String(getWiFiClientSsidPasswordMaxLength()) + F("</h2>") ) );
+    String content = getHtmlPage( String( F("<h2>Error: SSID Password exceeds maximum length of ") ) + String( getWiFiClientSsidPasswordMaxLength() ) + String( F("</h2>") ) );
+    wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+    wifiWebServer.send( 400, getContentTypeTextHtml(), content );
     return;
   }
 
@@ -1857,6 +2480,9 @@ void handleWebServerPost() {
   bool raidAlarmServerReceivedPopulated = false;
   if( htmlPageServerOptionReceived == HTML_PAGE_RAID_SERVER_VK_NAME ) {
     raidAlarmServerReceived = VK_RAID_ALARM_SERVER;
+    raidAlarmServerReceivedPopulated = true;
+  } else if( htmlPageServerOptionReceived == HTML_PAGE_RAID_SERVER_UA_NAME ) {
+    raidAlarmServerReceived = UA_RAID_ALARM_SERVER;
     raidAlarmServerReceivedPopulated = true;
   } else if( htmlPageServerOptionReceived == HTML_PAGE_RAID_SERVER_AC_NAME ) {
     raidAlarmServerReceived = AC_RAID_ALARM_SERVER;
@@ -1929,7 +2555,9 @@ void handleWebServerPost() {
   bool isDataSourceChanged = raidAlarmServerReceivedPopulated && raidAlarmServerReceived != currentRaidAlarmServer;
 
   String waitTime = isWiFiChanged ? String(TIMEOUT_CONNECT_WEB/1000 + 6) : ( isDataSourceChanged ? "4" : "2" );
-  wifiWebServer.send( 200, getTextHtmlPage(), getHtmlPage( getHtmlPageFillup( waitTime, waitTime ) + F("<h2>Save successful</h2>") ) );
+  String content = getHtmlPage( getHtmlPageFillup( waitTime, waitTime ) + String( F("<h2>Save successful</h2>") ) );
+  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
 
   bool isStripRerenderRequired = false;
   bool isStripStatusRerenderRequired = false;
@@ -2026,7 +2654,9 @@ void handleWebServerPost() {
 }
 
 void handleWebServerGetTestNight() {
-  wifiWebServer.send( 200, getTextHtmlPage(), getHtmlPage( getHtmlPageFillup( "6", "6" ) + F("<h2>Testing Night Mode...</h2>") ) );
+  String content = getHtmlPage( getHtmlPageFillup( "6", "6" ) + String( F("<h2>Testing Night Mode...</h2>") ) );
+  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
     isNightModeTest = true;
     setStripStatus();
     renderStrip();
@@ -2037,7 +2667,9 @@ void handleWebServerGetTestNight() {
 }
 
 void handleWebServerGetTestLeds() {
-  wifiWebServer.send( 200, getTextHtmlPage(), getHtmlPage( getHtmlPageFillup( String(STRIP_LED_COUNT), String(STRIP_LED_COUNT + 1) ) + F("<h2>Testing LEDs...</h2>") ) );
+  String content = getHtmlPage( getHtmlPageFillup( String(STRIP_LED_COUNT), String( STRIP_LED_COUNT + 1 ) ) + String( F("<h2>Testing LEDs...</h2>") ) );
+  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
   for( uint8_t ledIndex = 0; ledIndex < STRIP_LED_COUNT; ledIndex++ ) {
     uint32_t oldColor = strip.getPixelColor( ledIndex );
     strip.setPixelColor( ledIndex, Adafruit_NeoPixel::Color(0, 0, 0) );
@@ -2058,36 +2690,61 @@ void handleWebServerGetTestLeds() {
 }
 
 void handleWebServerGetReboot() {
-  wifiWebServer.send( 200, getTextHtmlPage(), getHtmlPage( getHtmlPageFillup( "9", "9" ) + F("<h2>Rebooting...</h2>") ) );
+  String content = getHtmlPage( getHtmlPageFillup( "9", "9" ) + String( F("<h2>Rebooting...</h2>") ) );
+  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
+  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
   delay( 200 );
   ESP.restart();
 }
 
+void handleWebServerRedirect() {
+  wifiWebServer.sendHeader( F("Location"), String( F("http://") ) + WiFi.softAPIP().toString() );
+  wifiWebServer.send( 302, getContentTypeTextHtml(), "" );
+  wifiWebServer.client().stop();
+}
+
 bool isWebServerInitialized = false;
-void createWebServer() {
+void stopWebServer() {
+  if( !isWebServerInitialized ) return;
+  wifiWebServer.stop();
+  isWebServerInitialized = false;
+}
+
+void startWebServer() {
+  if( /*!isApInitialized || !wiFiClient.connected() || */isWebServerInitialized ) return;
   Serial.print( F("Starting web server...") );
+  wifiWebServer.begin();
+  isWebServerInitialized = true;
+  Serial.println( " done" );
+}
+
+void configureWebServer() {
   wifiWebServer.on( HTML_PAGE_ROOT_ENDPOINT, HTTP_GET,  handleWebServerGet );
   wifiWebServer.on( HTML_PAGE_ROOT_ENDPOINT, HTTP_POST, handleWebServerPost );
   wifiWebServer.on( HTML_PAGE_TEST_NIGHT_ENDPOINT, HTTP_GET, handleWebServerGetTestNight );
   wifiWebServer.on( HTML_PAGE_TESTLED_ENDPOINT, HTTP_GET, handleWebServerGetTestLeds );
   wifiWebServer.on( HTML_PAGE_REBOOT_ENDPOINT, HTTP_GET, handleWebServerGetReboot );
+  wifiWebServer.onNotFound([]() {
+    handleWebServerRedirect();
+  });
   httpUpdater.setup( &wifiWebServer );
-  wifiWebServer.begin();
-  isWebServerInitialized = true;
-  Serial.println( " done" );
 }
 
 
 //setup and main loop
 void setup() {
   Serial.begin( 9600 );
+  Serial.println();
+  Serial.println( String( F("Air Raid Alarm Monitor by Dmytro Kurylo. V@") ) + getFirmwareVersion() + String( F(" CPU@") ) + String( ESP.getCpuFreqMHz() ) );
+
   initInternalLed();
   initEeprom();
   loadEepromData();
   initStrip();
   initVariables();
-  createWebServer();
+  configureWebServer();
   connectToWiFi( true, true );
+  startWebServer();
   initTimeClient( true );
 }
 
@@ -2095,11 +2752,12 @@ void loop() {
   unsigned long currentMillis;
 
   currentMillis = millis();
-  if( isFirstLoopRun || ( ( currentMillis - previousMillisInternalLed ) >= ( getInternalLedStatus() == LOW ? DELAY_INTERNAL_LED_ANIMATION_HIGH : DELAY_INTERNAL_LED_ANIMATION_LOW ) ) ) {
+  if( isFirstLoopRun || ( ( currentMillis - previousMillisInternalLed ) >= ( getInternalLedStatus() == HIGH ? DELAY_INTERNAL_LED_ANIMATION_HIGH : DELAY_INTERNAL_LED_ANIMATION_LOW ) ) ) {
     previousMillisInternalLed = currentMillis;
-    setInternalLedStatus( getInternalLedStatus() == LOW ? HIGH : LOW );
+    setInternalLedStatus( getInternalLedStatus() == HIGH ? LOW : HIGH );
   }
 
+  dnsServer.processNextRequest();
   wifiWebServer.handleClient();
 
   currentMillis = millis();
@@ -2123,6 +2781,17 @@ void loop() {
         previousMillisRaidAlarmCheck = currentMillis;
         if( WiFi.isConnected() ) {
           vkRetrieveAndProcessServerData();
+        } else {
+          resetAlarmStatusAndConnectToWiFi();
+        }
+      }
+      break;
+    case UA_RAID_ALARM_SERVER:
+      if( isFirstLoopRun || forceRaidAlarmCheck || ( currentMillis - previousMillisRaidAlarmCheck >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+        forceRaidAlarmCheck = false;
+        previousMillisRaidAlarmCheck = currentMillis;
+        if( WiFi.isConnected() ) {
+          uaRetrieveAndProcessServerData();
         } else {
           resetAlarmStatusAndConnectToWiFi();
         }
