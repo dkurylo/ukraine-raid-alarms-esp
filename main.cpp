@@ -88,15 +88,13 @@ const uint32_t DELAY_NTP_TIME_SYNC = 3600000;
 
 
 
-
-//raid alarm server selection
-const uint8_t VK_RAID_ALARM_SERVER = 1; //"vadimklimenko.com"; periodically issues standard get request to server and receives large JSON with alarm data. When choosing VK_RAID_ALARM_SERVER, config variables start with VK_
-const uint8_t UA_RAID_ALARM_SERVER = 2; //"ukrainealarm.com"; periodically issues standard get request to server and receives large JSON with alarm data. When choosing UA_RAID_ALARM_SERVER, config variables start with UA_
-const uint8_t AC_RAID_ALARM_SERVER = 3; //"tcp.alerts.com.ua"; uses TCP connection and receives alarms instantly, but requires valid API_KEY to function. When choosing AL_RAID_ALARM_SERVER, config variables start with AC_
-const uint8_t AI_RAID_ALARM_SERVER = 4; //"alerts.in.ua"; periodically issues standard get request to server and receives small JSON with alarm data. When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
-
-//vk raid alarm server-specific config
-//API: none
+//"vadimklimenko.com"
+//Periodically issues get request and receives large JSON with full alarm data. When choosing VK_RAID_ALARM_SERVER, config variables start with VK_
+//API URL: none
+//+ Does not require API_KEY to function
+//- Returns large JSON which is slower to retrieve and process
+//- Slower update period (using 15s as on the official site)
+const uint8_t VK_RAID_ALARM_SERVER = 1;
 const char* getVkRaidAlarmServerProtocol() { const char* result = "https://"; return result; };
 const char* getVkRaidAlarmServerName() { const char* result = "vadimklimenko.com"; return result; };
 const char* getVkRaidAlarmServerEndpoint() { const char* result = "/map/statuses.json"; return result; };
@@ -133,8 +131,14 @@ const std::vector<std::vector<const char*>> getVkRegions() {
   return result;
 }
 
-//ua raid alarm server-specific config
-//API: https://api.ukrainealarm.com/swagger/index.html
+//"ukrainealarm.com"
+//Periodically issues get request to detect whether there is status update, if there is one, then receives large JSON with active alarms. When choosing UA_RAID_ALARM_SERVER, config variables start with UA_
+//API URL: https://api.ukrainealarm.com/swagger/index.html
+//+ Returns small JSON when no alarm updates are detected
+//+ Faster update period (checked with 10s, and it's OK)
+//- Can return large JSON when alarm updates are detected, which is slower to retrieve and process
+//- Requires API_KEY to function
+const uint8_t UA_RAID_ALARM_SERVER = 2;
 const char* getUaRaidAlarmServerUrl() { const char* result = "https://api.ukrainealarm.com/api/v3/alerts"; return result; };
 const char* getUaRaidAlarmServerStatusEndpoint() { const char* result = "/status"; return result; };
 const char* getUaRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
@@ -171,8 +175,13 @@ const std::vector<std::vector<const char*>> getUaRegions() {
   return result;
 }
 
-//al raid alarm server-specific config
-//API: https://alerts.com.ua
+//"tcp.alerts.com.ua" - uses TCP connection and receives alarm updates instantly from server. When choosing AC_RAID_ALARM_SERVER, config variables start with AC_
+//API URL: https://alerts.com.ua
+//+ No need to parse JSON, very fast retrieval and processing speed
+//+ No need to issue periodic requests to retrieve data; almost instant data updates (max delay is 2s)
+//- Does not return Crimea data
+//- Requires API_KEY to function
+const uint8_t AC_RAID_ALARM_SERVER = 3;
 const char* getAcRaidAlarmServerName() { const char* result = "tcp.alerts.com.ua"; return result; };
 const uint16_t getAcRaidAlarmServerPort() { const uint16_t result = 1024; return result; };
 const char* getAcRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
@@ -209,8 +218,13 @@ const std::vector<std::vector<const char*>> getAcRegions() {
   return result;
 }
 
-//ai raid alarm server-specific config
-//API: https://api.alerts.in.ua/docs
+//"alerts.in.ua" - periodically issues get request to server and receives small JSON with full alarm data. When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
+//API: https://api.alerts.in.ua/docs/
+//+ Returns small JSON which is fast to retrieve and process
+//- Slower update period (15-17s minimum)
+//- Rate limit is shared across devices per external IP: possibility of hitting rate limits
+//- Requires API_KEY to function
+const uint8_t AI_RAID_ALARM_SERVER = 4;
 const char* getAiRaidAlarmServerUrl() { const char* result = "https://api.alerts.in.ua/v1/iot/active_air_raid_alerts_by_oblast.json"; return result; };
 const char* getAiRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
 const uint16_t DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 17000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
@@ -300,17 +314,10 @@ HTTPUpdateServer httpUpdater;
 #endif
 
 DNSServer dnsServer;
-WiFiClient wiFiClient; //used for AC; VK and AI use WiFiClientSecure and init it separately
+WiFiClient wiFiClient; //used for AC; UA, VK and AI use WiFiClientSecure and init it separately
 WiFiUDP ntpUdp;
 NTPClient timeClient(ntpUdp);
 Adafruit_NeoPixel strip(STRIP_LED_COUNT, STRIP_PIN, NEO_GRB + NEO_KHZ800);
-
-//announce method signatures
-void initTimeClient( bool isSetup );
-
-//other constants
-const char* getContentLengthHeaderName() { const char* CONTENT_LENGTH = "Content-Length"; return CONTENT_LENGTH; }
-const char* getContentTypeTextHtml() { const char* TEXT_HTML_PAGE = "text/html"; return TEXT_HTML_PAGE; }
 
 
 
@@ -323,8 +330,9 @@ unsigned long previousMillisRaidAlarmCheck = millis();
 unsigned long previousMillisInternalLed = millis();
 unsigned long previousMillisNightModeCheck = millis();
 
-bool forceNightModeCheck = false;
-bool forceRaidAlarmCheck = false;
+bool forceNtpUpdate = false;
+bool forceNightModeUpdate = false;
+bool forceRaidAlarmUpdate = false;
 
 const std::vector<std::vector<const char*>> getRegions() {
   switch( currentRaidAlarmServer ) {
@@ -367,12 +375,6 @@ void initVariables() {
   previousMillisNightModeCheck = currentMillis;
 }
 
-void forceRefreshData() {
-  initVariables();
-  forceRaidAlarmCheck = true;
-  initTimeClient( true );
-  forceNightModeCheck = true;
-}
 
 
 //helper methods
@@ -445,6 +447,7 @@ void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t
     default: r = v; g = p; b = q; break;
   }
 }
+
 
 
 //eeprom functionality
@@ -625,6 +628,7 @@ void shutdownAccessPoint() {
 }
 
 
+
 //led strip functionality
 bool isLedDimmingNightActive() {
   return isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode );
@@ -761,6 +765,8 @@ void initStrip() {
   strip.begin();
 }
 
+
+
 //internal led functionality
 uint8_t internalLedStatus = HIGH;
 
@@ -788,124 +794,6 @@ void initInternalLed() {
 }
 
 
-//wifi connection as a client
-const String getWiFiStatusText( wl_status_t status ) {
-  switch (status) {
-    case WL_IDLE_STATUS:
-      return F("IDLE_STATUS");
-    case WL_NO_SSID_AVAIL:
-      return F("NO_SSID_AVAIL");
-    case WL_SCAN_COMPLETED:
-      return F("SCAN_COMPLETED");
-    case WL_CONNECTED:
-      return F("CONNECTED");
-    case WL_CONNECT_FAILED:
-      return F("CONNECT_FAILED");
-    case WL_CONNECTION_LOST:
-      return F("CONNECTION_LOST");
-    case WL_DISCONNECTED:
-      return F("DISCONNECTED");
-    default:
-      return F("Unknown");
-  }
-}
-
-void disconnectFromWiFi( bool erasePreviousCredentials ) {
-  wl_status_t wifiStatus = WiFi.status();
-  if( wifiStatus != WL_DISCONNECTED && wifiStatus != WL_IDLE_STATUS ) {
-    Serial.print( String( F("Disconnecting from WiFi '") ) + WiFi.SSID() + String( F("'...") ) );
-    uint8_t previousInternalLedStatus = getInternalLedStatus();
-    setInternalLedStatus( HIGH );
-    WiFi.disconnect( false, erasePreviousCredentials );
-    delay( 10 );
-    while( true ) {
-      wifiStatus = WiFi.status();
-      if( wifiStatus == WL_DISCONNECTED || wifiStatus == WL_IDLE_STATUS ) break;
-      delay( 500 );
-      Serial.print( "." );
-    }
-    Serial.println( F(" done") );
-    setInternalLedStatus( previousInternalLedStatus );
-  }
-}
-
-void processWiFiConnection() {
-  wl_status_t wifiStatus = WiFi.status();
-  if( WiFi.isConnected() ) {
-    Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
-    setStripStatus( STRIP_STATUS_OK );
-    shutdownAccessPoint();
-    forceRefreshData();
-  } else if( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) {
-    Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
-    setStripStatus( STRIP_STATUS_WIFI_ERROR );
-  }
-}
-
-void processWiFiConnectionWithWait() {
-  unsigned long wiFiConnectStartedMillis = millis();
-  uint8_t previousInternalLedStatus = getInternalLedStatus();
-  while( true ) {
-    renderStripStatus( STRIP_STATUS_WIFI_CONNECTING );
-    setInternalLedStatus( HIGH );
-    delay( 1000 );
-    Serial.print( "." );
-    wl_status_t wifiStatus = WiFi.status();
-    if( WiFi.isConnected() ) {
-      Serial.println( F(" done") );
-      renderStripStatus( STRIP_STATUS_OK );
-      setInternalLedStatus( previousInternalLedStatus );
-      shutdownAccessPoint();
-      forceRefreshData();
-      break;
-    } else if( ( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) && ( ( millis() - wiFiConnectStartedMillis ) >= TIMEOUT_CONNECT_WIFI ) ) {
-      Serial.println( String( F(" ERROR: ") ) + getWiFiStatusText( wifiStatus ) );
-      renderStripStatus( STRIP_STATUS_WIFI_ERROR );
-      setInternalLedStatus( previousInternalLedStatus );
-      disconnectFromWiFi( false );
-      createAccessPoint();
-      break;
-    }
-  }
-}
-
-void connectToWiFi( bool forceConnect, bool tryNewCredentials ) { //wifi creds are automatically stored in NVM when WiFi.begin( ssid, pwd ) is used, and automatically read from NVM if WiFi.begin() is used
-  if( strlen(wiFiClientSsid) == 0 ) {
-    createAccessPoint();
-    return;
-  }
-
-  if( forceConnect || tryNewCredentials ) {
-    Serial.print( String( F("Connecting to WiFi '") ) + String( wiFiClientSsid ) + "'..." );
-    WiFi.hostname( getWiFiHostName() );
-    if( tryNewCredentials ) {
-      WiFi.begin( wiFiClientSsid, wiFiClientPassword ); //when calling WiFi.begin( ssid, pwd ), credentials are stored in NVM, no matter if they are the same or differ
-    } else {
-      WiFi.begin(); //when you don't expect credentials to be changed, you need to connect using WiFi.begin() which will load already stored creds from NVM in order to save NVM duty cycles
-    }
-  }
-
-  if( WiFi.isConnected() ) {
-    if( forceConnect || tryNewCredentials ) {
-      Serial.println( F(" done") );
-    }
-    shutdownAccessPoint();
-    return;
-  }
-
-  if( forceConnect || tryNewCredentials ) {
-    processWiFiConnectionWithWait();
-  } else {
-    processWiFiConnection();
-  }
-}
-
-void resetAlarmStatusAndConnectToWiFi() {
-  initAlarmStatus();
-  if( !isApInitialized ) {
-    connectToWiFi( false, false );
-  }
-}
 
 //time of day functionality
 bool isTimeClientInitialised = false;
@@ -1062,16 +950,152 @@ void calculateTimeOfDay( time_t dt ) {
   isUserAwake = difftime(dt, getTodayTimeAt(dt, 6 + dstBoundariesCorrection, 0)) > 0 && difftime(dt, getTodayTimeAt(dt, 19 + dstBoundariesCorrection, 0)) < 0;
 }
 
-void setTimeOfDay() {
+void retrieveTimeOfDay() {
   initTimeClient( false );
   if( stripLedBrightnessDimmingNight == 255 ) return;
   if( WiFi.isConnected() && !timeClient.isTimeSet() ) {
     timeClient.update();
   }
-  if( timeClient.isTimeSet() ) {
-    calculateTimeOfDay( timeClient.getEpochTime() );
+}
+
+bool processTimeOfDay() {
+  if( stripLedBrightnessDimmingNight == 255 ) return true;
+  if( !timeClient.isTimeSet() ) return false;
+  calculateTimeOfDay( timeClient.getEpochTime() );
+  return true;
+}
+
+
+//data update helpers
+void forceRefreshData() {
+  initVariables();
+  initTimeClient( true );
+  forceNtpUpdate = true;
+  forceNightModeUpdate = true;
+  forceRaidAlarmUpdate = true;
+}
+
+
+
+//wifi connection as a client
+const String getWiFiStatusText( wl_status_t status ) {
+  switch (status) {
+    case WL_IDLE_STATUS:
+      return F("IDLE_STATUS");
+    case WL_NO_SSID_AVAIL:
+      return F("NO_SSID_AVAIL");
+    case WL_SCAN_COMPLETED:
+      return F("SCAN_COMPLETED");
+    case WL_CONNECTED:
+      return F("CONNECTED");
+    case WL_CONNECT_FAILED:
+      return F("CONNECT_FAILED");
+    case WL_CONNECTION_LOST:
+      return F("CONNECTION_LOST");
+    case WL_DISCONNECTED:
+      return F("DISCONNECTED");
+    default:
+      return F("Unknown");
   }
 }
+
+void disconnectFromWiFi( bool erasePreviousCredentials ) {
+  wl_status_t wifiStatus = WiFi.status();
+  if( wifiStatus != WL_DISCONNECTED && wifiStatus != WL_IDLE_STATUS ) {
+    Serial.print( String( F("Disconnecting from WiFi '") ) + WiFi.SSID() + String( F("'...") ) );
+    uint8_t previousInternalLedStatus = getInternalLedStatus();
+    setInternalLedStatus( HIGH );
+    WiFi.disconnect( false, erasePreviousCredentials );
+    delay( 10 );
+    while( true ) {
+      wifiStatus = WiFi.status();
+      if( wifiStatus == WL_DISCONNECTED || wifiStatus == WL_IDLE_STATUS ) break;
+      delay( 500 );
+      Serial.print( "." );
+    }
+    Serial.println( F(" done") );
+    setInternalLedStatus( previousInternalLedStatus );
+  }
+}
+
+void processWiFiConnection() {
+  wl_status_t wifiStatus = WiFi.status();
+  if( WiFi.isConnected() ) {
+    Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
+    setStripStatus( STRIP_STATUS_OK );
+    shutdownAccessPoint();
+    forceRefreshData();
+  } else if( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) {
+    Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
+    setStripStatus( STRIP_STATUS_WIFI_ERROR );
+  }
+}
+
+void processWiFiConnectionWithWait() {
+  unsigned long wiFiConnectStartedMillis = millis();
+  uint8_t previousInternalLedStatus = getInternalLedStatus();
+  while( true ) {
+    renderStripStatus( STRIP_STATUS_WIFI_CONNECTING );
+    setInternalLedStatus( HIGH );
+    delay( 1000 );
+    Serial.print( "." );
+    wl_status_t wifiStatus = WiFi.status();
+    if( WiFi.isConnected() ) {
+      Serial.println( F(" done") );
+      renderStripStatus( STRIP_STATUS_OK );
+      setInternalLedStatus( previousInternalLedStatus );
+      shutdownAccessPoint();
+      forceRefreshData();
+      break;
+    } else if( ( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) && ( ( millis() - wiFiConnectStartedMillis ) >= TIMEOUT_CONNECT_WIFI ) ) {
+      Serial.println( String( F(" ERROR: ") ) + getWiFiStatusText( wifiStatus ) );
+      renderStripStatus( STRIP_STATUS_WIFI_ERROR );
+      setInternalLedStatus( previousInternalLedStatus );
+      disconnectFromWiFi( false );
+      createAccessPoint();
+      break;
+    }
+  }
+}
+
+void connectToWiFi( bool forceConnect, bool tryNewCredentials ) { //wifi creds are automatically stored in NVM when WiFi.begin( ssid, pwd ) is used, and automatically read from NVM if WiFi.begin() is used
+  if( strlen(wiFiClientSsid) == 0 ) {
+    createAccessPoint();
+    return;
+  }
+
+  if( forceConnect || tryNewCredentials ) {
+    Serial.print( String( F("Connecting to WiFi '") ) + String( wiFiClientSsid ) + "'..." );
+    WiFi.hostname( ( String( getWiFiHostName() ) + "-" + String( ESP.getChipId() ) ).c_str() );
+    if( tryNewCredentials ) {
+      WiFi.begin( wiFiClientSsid, wiFiClientPassword ); //when calling WiFi.begin( ssid, pwd ), credentials are stored in NVM, no matter if they are the same or differ
+    } else {
+      WiFi.begin(); //when you don't expect credentials to be changed, you need to connect using WiFi.begin() which will load already stored creds from NVM in order to save NVM duty cycles
+    }
+  }
+
+  if( WiFi.isConnected() ) {
+    if( forceConnect || tryNewCredentials ) {
+      Serial.println( F(" done") );
+    }
+    shutdownAccessPoint();
+    return;
+  }
+
+  if( forceConnect || tryNewCredentials ) {
+    processWiFiConnectionWithWait();
+  } else {
+    processWiFiConnection();
+  }
+}
+
+void resetAlarmStatusAndConnectToWiFi() {
+  initAlarmStatus();
+  if( !isApInitialized ) {
+    connectToWiFi( false, false );
+  }
+}
+
 
 
 //functions for processing raid alarm status
@@ -1206,6 +1230,7 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
 }
 
 
+
 //alarms data retrieval and processing
 void getIpAddress( const char* serverName, IPAddress& ipAddress ) {
   #ifdef ESP8266
@@ -1297,7 +1322,7 @@ void vkRetrieveAndProcessServerData() {
   uint8_t previousInternalLedStatus = getInternalLedStatus();
   setInternalLedStatus( HIGH );
 
-  const char* headerKeys[] = { getContentLengthHeaderName() };
+  const char* headerKeys[] = { String( F("Content-Length") ).c_str() };
   httpClient.collectHeaders( headerKeys, 1 );
 
   std::map<String, bool> regionToAlarmStatus; //map to hold full region data, is not needed when single region at a time is processed
@@ -1312,13 +1337,14 @@ void vkRetrieveAndProcessServerData() {
       uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
       bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
       uint32_t reportedResponseLength = 0;
-      if( httpClient.hasHeader( getContentLengthHeaderName() ) ) {
-        String reportedResponseLengthValue = httpClient.header( getContentLengthHeaderName() );
+      if( httpClient.hasHeader( String( F("Content-Length") ).c_str() ) ) {
+        String reportedResponseLengthValue = httpClient.header( String( F("Content-Length") ).c_str() );
         if( reportedResponseLengthValue.length() > 0 ) {
           reportedResponseLength = reportedResponseLengthValue.toInt();
         }
       }
       uint32_t actualResponseLength = 0;
+      bool endOfTransmission = false;
 
       //variables used for response trimming to redule heap size start
       uint8_t currObjectLevel = 0;
@@ -1340,7 +1366,7 @@ void vkRetrieveAndProcessServerData() {
       char responseCurrChar;
 
       WiFiClient *stream = httpClient.getStreamPtr();
-      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) ) {
+      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
         uint32_t numBytesAvailable = stream->available();
         if( numBytesAvailable == 0 ) {
           yield();
@@ -1355,6 +1381,10 @@ void vkRetrieveAndProcessServerData() {
 
         for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
           responseCurrChar = responseCharBuffer[responseCurrCharIndex];
+
+          if( currObjectLevel == 1 && responseCurrChar == '}' ) { //this helps to find the end of response, since server does not send content-length, and its long to wait for timeout delay
+            endOfTransmission = true;
+          }
 
           //response processing start
           if( currObjectLevel == 3 && enabledObjectNameFound && ( responseCurrChar == ',' || responseCurrChar == '}' ) ) {
@@ -1430,10 +1460,10 @@ void vkRetrieveAndProcessServerData() {
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
         setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
@@ -1487,7 +1517,11 @@ void uaProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
   }
 }
 
-uint64_t uaLastActionData = 0;
+uint64_t uaLastActionHash = 0;
+void uaResetLastActionHash() {
+  uaLastActionHash = 0;
+}
+
 bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
   bool isDataChanged = false;
 
@@ -1512,7 +1546,7 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
   uint8_t previousInternalLedStatus = getInternalLedStatus();
   setInternalLedStatus( HIGH );
 
-  const char* headerKeys[] = { getContentLengthHeaderName() };
+  const char* headerKeys[] = { String( F("Content-Length") ).c_str() };
   httpClient.collectHeaders( headerKeys, 1 );
 
   Serial.print( String( F("Retrieving status... heap: ") ) + String( ESP.getFreeHeap() ) );
@@ -1526,8 +1560,8 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
       uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
       bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
       uint32_t reportedResponseLength = 0;
-      if( httpClient.hasHeader( getContentLengthHeaderName() ) ) {
-        String reportedResponseLengthValue = httpClient.header( getContentLengthHeaderName() );
+      if( httpClient.hasHeader( String( F("Content-Length") ).c_str() ) ) {
+        String reportedResponseLengthValue = httpClient.header( String( F("Content-Length") ).c_str() );
         if( reportedResponseLengthValue.length() > 0 ) {
           reportedResponseLength = reportedResponseLengthValue.toInt();
         }
@@ -1580,10 +1614,10 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
           if( responseCurrChar == '}' ) {
             if( currObjectLevel == 1 ) {
               if( lastActionIndexValue != "" ) {
-                uint64_t newLastActionIndex = strtoull( lastActionIndexValue.c_str(), NULL, 10 );
-                if( newLastActionIndex == 0 || uaLastActionData != newLastActionIndex ) {
+                uint64_t newLastActionHash = strtoull( lastActionIndexValue.c_str(), NULL, 10 );
+                if( newLastActionHash == 0 || uaLastActionHash != newLastActionHash ) {
                   isDataChanged = true;
-                  uaLastActionData = newLastActionIndex;
+                  uaLastActionHash = newLastActionHash;
                 }
               } else {
                 isDataChanged = true;
@@ -1631,17 +1665,17 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
         setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else if( httpCode == 304 ) {
       setStripStatus( STRIP_STATUS_OK );
-      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
     } else if( httpCode == 429 ) {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
-      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
     } else {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
@@ -1667,8 +1701,10 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
 void uaRetrieveAndProcessServerData() {
   WiFiClientSecure wiFiClient;
 
-  if( !uaRetrieveAndProcessStatusChangedData( wiFiClient ) ) {
-    return;
+  if( uaLastActionHash != 0 ) { //at the beginning, we can skip checking for the last update hash code, as we don't have any data at all
+    if( !uaRetrieveAndProcessStatusChangedData( wiFiClient ) ) {
+      return;
+    }
   }
 
   wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
@@ -1692,12 +1728,12 @@ void uaRetrieveAndProcessServerData() {
   uint8_t previousInternalLedStatus = getInternalLedStatus();
   setInternalLedStatus( HIGH );
 
-  const char* headerKeys[] = { getContentLengthHeaderName() };
+  const char* headerKeys[] = { String( F("Content-Length") ).c_str() };
   httpClient.collectHeaders( headerKeys, 1 );
 
   std::map<String, bool> regionToAlarmStatus; //map to hold full region data, is not needed when single region at a time is processed
   unsigned long processingTimeStartMillis = millis();
-  Serial.print( String( F("Retrieving data... heap: ") ) + String( ESP.getFreeHeap() ) );
+  Serial.print( String( F("Retrieving data..... heap: ") ) + String( ESP.getFreeHeap() ) );
   int16_t httpCode = httpClient.GET();
 
   if( httpCode > 0 ) {
@@ -1707,8 +1743,8 @@ void uaRetrieveAndProcessServerData() {
       uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
       bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
       uint32_t reportedResponseLength = 0;
-      if( httpClient.hasHeader( getContentLengthHeaderName() ) ) {
-        String reportedResponseLengthValue = httpClient.header( getContentLengthHeaderName() );
+      if( httpClient.hasHeader( String( F("Content-Length") ).c_str() ) ) {
+        String reportedResponseLengthValue = httpClient.header( String( F("Content-Length") ).c_str() );
         if( reportedResponseLengthValue.length() > 0 ) {
           reportedResponseLength = reportedResponseLengthValue.toInt();
         }
@@ -1940,17 +1976,17 @@ void uaRetrieveAndProcessServerData() {
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
         setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else if( httpCode == 304 ) {
       setStripStatus( STRIP_STATUS_OK );
-      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
     } else if( httpCode == 429 ) {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
-      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
     } else {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
@@ -1968,10 +2004,16 @@ void uaRetrieveAndProcessServerData() {
 
   httpClient.end();
   wiFiClient.stop();
+
   setInternalLedStatus( previousInternalLedStatus );
 
-  if( regionToAlarmStatus.size() == 0 ) return;
-  uaProcessServerData( regionToAlarmStatus );
+  if( regionToAlarmStatus.size() != 0 ) {
+    uaProcessServerData( regionToAlarmStatus );
+  }
+
+  if( uaLastActionHash == 0 ) { //at the beginning, we should retrieve the last update hash code for future checks, even after we receive the data
+    uaRetrieveAndProcessStatusChangedData( wiFiClient );
+  }
 }
 
 //functions for AC server
@@ -2077,7 +2119,7 @@ bool acRetrieveAndProcessServerData() {
   return acProcessServerData( payload );
 }
 
-
+//functions for AI server
 void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
   bool isParseError = false;
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
@@ -2148,7 +2190,7 @@ void aiRetrieveAndProcessServerData() {
   uint8_t previousInternalLedStatus = getInternalLedStatus();
   setInternalLedStatus( HIGH );
 
-  const char* headerKeys[] = { getContentLengthHeaderName() };
+  const char* headerKeys[] = { String( F("Content-Length") ).c_str() };
   httpClient.collectHeaders( headerKeys, 1 );
 
   std::map<String, bool> regionToAlarmStatus; //map to hold full region data, is not needed when single region at a time is processed
@@ -2163,13 +2205,14 @@ void aiRetrieveAndProcessServerData() {
       uint16_t responseTimeoutDelay = 5000; //wait for full response this amount of time: truncated responses are received from time to time without this timeout
       bool waitForResponseTimeoutDelay = true; //this will help retrieving all the data in case when no content-length is provided, especially when large response is expected
       uint32_t reportedResponseLength = 0;
-      if( httpClient.hasHeader( getContentLengthHeaderName() ) ) {
-        String reportedResponseLengthValue = httpClient.header( getContentLengthHeaderName() );
+      if( httpClient.hasHeader( String( F("Content-Length") ).c_str() ) ) {
+        String reportedResponseLengthValue = httpClient.header( String( F("Content-Length") ).c_str() );
         if( reportedResponseLengthValue.length() > 0 ) {
           reportedResponseLength = reportedResponseLengthValue.toInt();
         }
       }
       uint32_t actualResponseLength = 0;
+      bool endOfTransmission = false;
 
       //variables used for response trimming to redule heap size start
       bool jsonStringFound = false;
@@ -2181,7 +2224,7 @@ void aiRetrieveAndProcessServerData() {
       char responseCurrChar;
 
       WiFiClient *stream = httpClient.getStreamPtr();
-      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) ) {
+      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
         uint32_t numBytesAvailable = stream->available();
         if( numBytesAvailable == 0 ) {
           yield();
@@ -2195,6 +2238,10 @@ void aiRetrieveAndProcessServerData() {
 
         for( uint32_t responseCurrCharIndex = 0; responseCurrCharIndex < numBytesReadToBuffer; responseCurrCharIndex++ ) {
           responseCurrChar = responseCharBuffer[responseCurrCharIndex];
+
+          if( jsonStringFound && responseCurrChar == '\"' ) { //this helps to find the end of response, since server does not send content-length, and its long to wait for timeout delay
+            endOfTransmission = true;
+          }
 
           //response processing start
           if( responseCurrChar == '\"' ) {
@@ -2217,17 +2264,17 @@ void aiRetrieveAndProcessServerData() {
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
         setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data [") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + "]" );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
       }
     } else if( httpCode == 304 ) {
       setStripStatus( STRIP_STATUS_OK );
-      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
     } else if( httpCode == 429 ) {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
-      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
+      Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
     } else {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
@@ -2250,6 +2297,8 @@ void aiRetrieveAndProcessServerData() {
   if( regionToAlarmStatus.size() == 0 ) return;
   aiProcessServerData( regionToAlarmStatus );
 }
+
+
 
 //web server
 const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
@@ -2412,8 +2461,8 @@ String( F("<form method=\"POST\">"
     "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Reboot") ) + String( F("</span>"
   "</span>"
 "</div>") ) );
-  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
+  wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+  wifiWebServer.send( 200, F("text/html"), content );
 }
 
 const char HTML_PAGE_FILLUP_START[] PROGMEM = "<style>"
@@ -2452,26 +2501,26 @@ void handleWebServerPost() {
 
   if( htmlPageSsidNameReceived.length() == 0 ) {
     String content = getHtmlPage( String( F("<h2>Error: Missing SSID Name</h2>") ) );
-    wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-    wifiWebServer.send( 400, getContentTypeTextHtml(), content );
+    wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+    wifiWebServer.send( 400, F("text/html"), content );
     return;
   }
   if( htmlPageSsidPasswordReceived.length() == 0 ) {
     String content = getHtmlPage( String( F("<h2>Error: Missing SSID Password</h2>") ) );
-    wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-    wifiWebServer.send( 400, getContentTypeTextHtml(), content );
+    wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+    wifiWebServer.send( 400, F("text/html"), content );
     return;
   }
   if( htmlPageSsidNameReceived.length() > getWiFiClientSsidNameMaxLength() ) {
     String content = getHtmlPage( String( F("<h2>Error: SSID Name exceeds maximum length of ") ) + String( getWiFiClientSsidNameMaxLength() ) + String( F("</h2>") ) );
-    wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-    wifiWebServer.send( 400, getContentTypeTextHtml(), content );
+    wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+    wifiWebServer.send( 400, F("text/html"), content );
     return;
   }
   if( htmlPageSsidPasswordReceived.length() > getWiFiClientSsidPasswordMaxLength() ) {
     String content = getHtmlPage( String( F("<h2>Error: SSID Password exceeds maximum length of ") ) + String( getWiFiClientSsidPasswordMaxLength() ) + String( F("</h2>") ) );
-    wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-    wifiWebServer.send( 400, getContentTypeTextHtml(), content );
+    wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+    wifiWebServer.send( 400, F("text/html"), content );
     return;
   }
 
@@ -2556,8 +2605,8 @@ void handleWebServerPost() {
 
   String waitTime = isWiFiChanged ? String(TIMEOUT_CONNECT_WEB/1000 + 6) : ( isDataSourceChanged ? "4" : "2" );
   String content = getHtmlPage( getHtmlPageFillup( waitTime, waitTime ) + String( F("<h2>Save successful</h2>") ) );
-  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
+  wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+  wifiWebServer.send( 200, F("text/html"), content );
 
   bool isStripRerenderRequired = false;
   bool isStripStatusRerenderRequired = false;
@@ -2638,6 +2687,9 @@ void handleWebServerPost() {
     writeEepromIntValue( eepromRaidAlarmServerIndex, raidAlarmServerReceived );
     Serial.println( F("Switching to new data source...") );
     currentRaidAlarmServer = raidAlarmServerReceived;
+    if( currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) { //if this not reset and UA source was used before, then the data update won't happen, since the code will think that we already have up-do-date values
+      uaResetLastActionHash();
+    }
     initVariables();
   }
 
@@ -2655,8 +2707,8 @@ void handleWebServerPost() {
 
 void handleWebServerGetTestNight() {
   String content = getHtmlPage( getHtmlPageFillup( "6", "6" ) + String( F("<h2>Testing Night Mode...</h2>") ) );
-  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
+  wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+  wifiWebServer.send( 200, F("text/html"), content );
     isNightModeTest = true;
     setStripStatus();
     renderStrip();
@@ -2668,8 +2720,8 @@ void handleWebServerGetTestNight() {
 
 void handleWebServerGetTestLeds() {
   String content = getHtmlPage( getHtmlPageFillup( String(STRIP_LED_COUNT), String( STRIP_LED_COUNT + 1 ) ) + String( F("<h2>Testing LEDs...</h2>") ) );
-  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
+  wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+  wifiWebServer.send( 200, F("text/html"), content );
   for( uint8_t ledIndex = 0; ledIndex < STRIP_LED_COUNT; ledIndex++ ) {
     uint32_t oldColor = strip.getPixelColor( ledIndex );
     strip.setPixelColor( ledIndex, Adafruit_NeoPixel::Color(0, 0, 0) );
@@ -2691,15 +2743,15 @@ void handleWebServerGetTestLeds() {
 
 void handleWebServerGetReboot() {
   String content = getHtmlPage( getHtmlPageFillup( "9", "9" ) + String( F("<h2>Rebooting...</h2>") ) );
-  wifiWebServer.sendHeader( getContentLengthHeaderName(), String( content.length() ) );
-  wifiWebServer.send( 200, getContentTypeTextHtml(), content );
+  wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+  wifiWebServer.send( 200, F("text/html"), content );
   delay( 200 );
   ESP.restart();
 }
 
 void handleWebServerRedirect() {
   wifiWebServer.sendHeader( F("Location"), String( F("http://") ) + WiFi.softAPIP().toString() );
-  wifiWebServer.send( 302, getContentTypeTextHtml(), "" );
+  wifiWebServer.send( 302, F("text/html"), "" );
   wifiWebServer.client().stop();
 }
 
@@ -2733,7 +2785,7 @@ void configureWebServer() {
 
 //setup and main loop
 void setup() {
-  Serial.begin( 9600 );
+  Serial.begin( 115200 );
   Serial.println();
   Serial.println( String( F("Air Raid Alarm Monitor by Dmytro Kurylo. V@") ) + getFirmwareVersion() + String( F(" CPU@") ) + String( ESP.getCpuFreqMHz() ) );
 
@@ -2749,36 +2801,37 @@ void setup() {
 }
 
 void loop() {
-  unsigned long currentMillis;
-
-  currentMillis = millis();
-  if( isFirstLoopRun || ( ( currentMillis - previousMillisInternalLed ) >= ( getInternalLedStatus() == HIGH ? DELAY_INTERNAL_LED_ANIMATION_HIGH : DELAY_INTERNAL_LED_ANIMATION_LOW ) ) ) {
-    previousMillisInternalLed = currentMillis;
+  if( isFirstLoopRun || ( ( millis() - previousMillisInternalLed ) >= ( getInternalLedStatus() == HIGH ? DELAY_INTERNAL_LED_ANIMATION_HIGH : DELAY_INTERNAL_LED_ANIMATION_LOW ) ) ) {
+    previousMillisInternalLed = millis();
     setInternalLedStatus( getInternalLedStatus() == HIGH ? LOW : HIGH );
   }
 
-  dnsServer.processNextRequest();
+  if( isApInitialized ) {
+    dnsServer.processNextRequest();
+  }
   wifiWebServer.handleClient();
 
-  currentMillis = millis();
-  if( isApInitialized && ( ( currentMillis - apStartedMillis ) >= TIMEOUT_AP ) ) {
+  if( isApInitialized && ( ( millis() - apStartedMillis ) >= TIMEOUT_AP ) ) {
     shutdownAccessPoint();
     connectToWiFi( true, false );
   }
 
-  currentMillis = millis();
-  if( ( isFirstLoopRun || forceNightModeCheck || ( ( currentMillis - previousMillisNightModeCheck ) >= DELAY_NIGHT_MODE_CHECK ) ) ) {
-    forceNightModeCheck = false;
-    previousMillisNightModeCheck = currentMillis;
-    setTimeOfDay();
+  if( ( isFirstLoopRun || forceNtpUpdate || forceNightModeUpdate || ( ( millis() - previousMillisNightModeCheck ) >= DELAY_NIGHT_MODE_CHECK ) ) ) {
+    previousMillisNightModeCheck = millis();
+    if( forceNtpUpdate || !forceNightModeUpdate ) {
+      forceNtpUpdate = false;
+      retrieveTimeOfDay();
+    }
+    if( processTimeOfDay() ) {
+      forceNightModeUpdate = false;
+    }
   }
 
-  currentMillis = millis();
   switch( currentRaidAlarmServer ) {
     case VK_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmCheck || ( currentMillis - previousMillisRaidAlarmCheck >= DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-        forceRaidAlarmCheck = false;
-        previousMillisRaidAlarmCheck = currentMillis;
+      if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+        forceRaidAlarmUpdate = false;
+        previousMillisRaidAlarmCheck = millis();
         if( WiFi.isConnected() ) {
           vkRetrieveAndProcessServerData();
         } else {
@@ -2787,9 +2840,9 @@ void loop() {
       }
       break;
     case UA_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmCheck || ( currentMillis - previousMillisRaidAlarmCheck >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-        forceRaidAlarmCheck = false;
-        previousMillisRaidAlarmCheck = currentMillis;
+      if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+        forceRaidAlarmUpdate = false;
+        previousMillisRaidAlarmCheck = millis();
         if( WiFi.isConnected() ) {
           uaRetrieveAndProcessServerData();
         } else {
@@ -2799,20 +2852,20 @@ void loop() {
       break;
     case AC_RAID_ALARM_SERVER:
       if( acRetrieveAndProcessServerData() ) {
-        previousMillisLedAnimation = currentMillis;
+        previousMillisLedAnimation = millis();
         renderStrip();
       }
-      if( isFirstLoopRun || forceRaidAlarmCheck || ( ( currentMillis - previousMillisRaidAlarmCheck ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
-        previousMillisRaidAlarmCheck = currentMillis;
+      if( isFirstLoopRun || forceRaidAlarmUpdate || ( ( millis() - previousMillisRaidAlarmCheck ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
+        previousMillisRaidAlarmCheck = millis();
         if( !WiFi.isConnected() ) {
           resetAlarmStatusAndConnectToWiFi();
         }
       }
       break;
     case AI_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmCheck || ( currentMillis - previousMillisRaidAlarmCheck >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-        forceRaidAlarmCheck = false;
-        previousMillisRaidAlarmCheck = currentMillis;
+      if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+        forceRaidAlarmUpdate = false;
+        previousMillisRaidAlarmCheck = millis();
         if( WiFi.isConnected() ) {
           aiRetrieveAndProcessServerData();
         } else {
@@ -2824,9 +2877,8 @@ void loop() {
       break;
   }
 
-  currentMillis = millis();
-  if( isFirstLoopRun || ( ( currentMillis - previousMillisLedAnimation ) >= DELAY_STRIP_ANIMATION ) ) {
-    previousMillisLedAnimation = currentMillis;
+  if( isFirstLoopRun || ( ( millis() - previousMillisLedAnimation ) >= DELAY_STRIP_ANIMATION ) ) {
+    previousMillisLedAnimation = millis();
     setStripStatus();
     renderStrip();
   }
