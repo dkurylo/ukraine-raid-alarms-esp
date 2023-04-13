@@ -1256,8 +1256,8 @@ void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
     const std::vector<const char*>& regions = allRegions[ledIndex];
-    bool isRegionFound = false;
     for( const char* region : regions ) {
+      bool isRegionFound = false;
       for( const auto& receivedRegionItem : regionToAlarmStatus ) {
         const char* receivedRegionName = receivedRegionItem.first.c_str();
         if( strcmp( region, receivedRegionName ) == 0 ) {
@@ -1267,9 +1267,7 @@ void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
           break;
         }
       }
-      if( isRegionFound ) {
-        break;
-      } else {
+      if( !isRegionFound ) {
         isParseError = true;
         Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + String( region ) + String( F(" not found") ) );
       }
@@ -1489,34 +1487,6 @@ void vkRetrieveAndProcessServerData() {
 }
 
 //functions for UA server
-void uaProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
-  bool isParseError = false;
-  const std::vector<std::vector<const char*>>& allRegions = getRegions();
-  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    const std::vector<const char*>& regions = allRegions[ledIndex];
-    bool isRegionFound = false;
-    for( const char* region : regions ) {
-      for( const auto& receivedRegionItem : regionToAlarmStatus ) {
-        const char* receivedRegionName = receivedRegionItem.first.c_str();
-        if( strcmp( region, receivedRegionName ) == 0 ) {
-          isRegionFound = true;
-          bool isAlarmEnabled = receivedRegionItem.second;
-          processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
-          break;
-        }
-      }
-      if( !isRegionFound ) { //API sends only active alarms, so if region was not found, then alarm status is inactive
-        bool isAlarmEnabled = false;
-        processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
-        break;
-      }
-    }
-  }
-  if( isParseError ) {
-    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-  }
-}
-
 uint64_t uaLastActionHash = 0;
 void uaResetLastActionHash() {
   uaLastActionHash = 0;
@@ -1698,6 +1668,33 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
   return isDataChanged;
 }
 
+void uaProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
+  bool isParseError = false;
+  const std::vector<std::vector<const char*>>& allRegions = getRegions();
+  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
+    const std::vector<const char*>& regions = allRegions[ledIndex];
+    for( const char* region : regions ) {
+      bool isRegionFound = false;
+      for( const auto& receivedRegionItem : regionToAlarmStatus ) {
+        const char* receivedRegionName = receivedRegionItem.first.c_str();
+        if( strcmp( region, receivedRegionName ) == 0 ) {
+          isRegionFound = true;
+          bool isAlarmEnabled = receivedRegionItem.second;
+          processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
+          break;
+        }
+      }
+      if( !isRegionFound ) { //API sends only active alarms, so if region was not found, then alarm status is inactive
+        bool isAlarmEnabled = false;
+        processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
+      }
+    }
+  }
+  if( isParseError ) {
+    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
+  }
+}
+
 void uaRetrieveAndProcessServerData() {
   WiFiClientSecure wiFiClient;
 
@@ -1755,12 +1752,12 @@ void uaRetrieveAndProcessServerData() {
       //variables used for response trimming to redule heap size start
       uint8_t currObjectLevel = 0;
 
-      const char* regionIdRootKey = "\"regionId\":";
+      /*const char* regionIdRootKey = "\"regionId\":";
       const uint8_t regionIdRootKeyMaxIndex = strlen(regionIdRootKey) - 1;
       bool isRegionIdRootKeyFound = false;
       uint32_t regionIdRootKeyCurrCharIndex = 0;
       bool isRegionIdRootValue = false;
-      String regionIdRootValue = "";
+      String regionIdRootValue = "";*/
 
       const char* activeAlertsObjectKey = "\"activeAlerts\":";
       const uint8_t activeAlertsObjectKeyMaxIndex = strlen(activeAlertsObjectKey) - 1;
@@ -1820,12 +1817,12 @@ void uaRetrieveAndProcessServerData() {
             continue;
           }
           if( responseCurrChar == '}' ) {
-            if( currObjectLevel == 1 ) {
+            /*if( currObjectLevel == 1 ) {
               regionIdRootValue = "";
-            } else if( currObjectLevel == 2 ) {
+            } else */if( currObjectLevel == 2 ) {
               if( isActiveAlertsObjectKeyFound ) {
-                if( regionIdRootValue == regionIdValue && regionTypeValue == "State" && alarmTypeValue == "AIR" ) {
-                  regionToAlarmStatus[ regionIdRootValue ] = true;
+                if( regionIdValue != "" && /*regionIdRootValue == regionIdValue &&*/ regionTypeValue == "State" && alarmTypeValue == "AIR" ) {
+                  regionToAlarmStatus[ regionIdValue ] = true;
                 }
                 regionIdValue = "";
                 regionTypeValue = "";
@@ -1850,7 +1847,7 @@ void uaRetrieveAndProcessServerData() {
           }
 
           if( currObjectLevel == 1 ) {
-            if( isRegionIdRootKeyFound ) {
+            /*if( isRegionIdRootKeyFound ) {
               if( responseCurrChar == '\"' ) {
                 isRegionIdRootValue = !isRegionIdRootValue;
                 continue;
@@ -1872,7 +1869,7 @@ void uaRetrieveAndProcessServerData() {
               } else {
                 regionIdRootKeyCurrCharIndex = 0;
               }
-            }
+            }*/
 
             if( !isActiveAlertsObjectKeyFound ) {
               if( activeAlertsObjectKey[activeAlertsObjectKeyCurrCharIndex] == responseCurrChar ) {
@@ -2125,8 +2122,8 @@ void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
     const std::vector<const char*>& regions = allRegions[ledIndex];
-    bool isRegionFound = false;
     for( const char* region : regions ) {
+      bool isRegionFound = false;
       for( const auto& receivedRegionItem : regionToAlarmStatus ) {
         const char* receivedRegionName = receivedRegionItem.first.c_str();
         if( strcmp( region, receivedRegionName ) == 0 ) {
@@ -2136,9 +2133,7 @@ void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
           break;
         }
       }
-      if( isRegionFound ) {
-        break;
-      } else {
+      if( !isRegionFound ) {
         isParseError = true;
         Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + region + String( F(" not found") ) );
       }
