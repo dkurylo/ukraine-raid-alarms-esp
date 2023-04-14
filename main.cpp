@@ -1346,12 +1346,17 @@ void vkRetrieveAndProcessServerData() {
 
       //variables used for response trimming to redule heap size start
       uint8_t currObjectLevel = 0;
-      const char* statesObjectName = "\"states\":";
-      const uint8_t statesObjectNameMaxIndex = strlen(statesObjectName) - 1;
+
+      String statesObjectNameStr = String( F("\"states\":") );
+      const char* statesObjectName = statesObjectNameStr.c_str();
+      const uint8_t statesObjectNameMaxIndex = statesObjectNameStr.length() - 1;
       bool statesObjectNameFound = false;
-      const char* enabledObjectName = "\"enabled\":";
-      const uint8_t enabledObjectNameMaxIndex = strlen(enabledObjectName) - 1;
+
+      String enabledObjectNameStr = String( F("\"enabled\":") );
+      const char* enabledObjectName = enabledObjectNameStr.c_str();
+      const uint8_t enabledObjectNameMaxIndex = enabledObjectNameStr.length() - 1;
       bool enabledObjectNameFound = false;
+
       uint32_t currCharComparedIndex = 0;
 
       bool jsonRegionFound = false;
@@ -1542,10 +1547,13 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
       //variables used for response trimming to redule heap size start
       uint8_t currObjectLevel = 0;
 
-      const char* lastActionIndexKey = "\"lastActionIndex\":";
-      const uint8_t lastActionIndexKeyMaxIndex = strlen(lastActionIndexKey) - 1;
+      String lastActionIndexKeyStr = String( F("\"lastActionIndex\":") );
+      const char* lastActionIndexKey = lastActionIndexKeyStr.c_str();
+      const uint8_t lastActionIndexKeyMaxIndex = lastActionIndexKeyStr.length() - 1;
       bool isLastActionIndexKeyFound = false;
+
       uint32_t lastActionIndexKeyCurrCharIndex = 0;
+
       bool isLastActionIndexValue = false;
       String lastActionIndexValue = "";
       //variables used for response trimming to redule heap size end
@@ -1752,34 +1760,40 @@ void uaRetrieveAndProcessServerData() {
       //variables used for response trimming to redule heap size start
       uint8_t currObjectLevel = 0;
 
-      /*const char* regionIdRootKey = "\"regionId\":";
-      const uint8_t regionIdRootKeyMaxIndex = strlen(regionIdRootKey) - 1;
+      /*String regionIdRootKeyStr = String( F("\"regionId\":") );
+      const char* regionIdRootKey = regionIdRootKeyStr.c_str();
+      const uint8_t regionIdRootKeyMaxIndex = regionIdRootKeyStr.length() - 1;
       bool isRegionIdRootKeyFound = false;
       uint32_t regionIdRootKeyCurrCharIndex = 0;
       bool isRegionIdRootValue = false;
       String regionIdRootValue = "";*/
 
-      const char* activeAlertsObjectKey = "\"activeAlerts\":";
-      const uint8_t activeAlertsObjectKeyMaxIndex = strlen(activeAlertsObjectKey) - 1;
+      String activeAlertsObjectKeyStr = String( F("\"activeAlerts\":") );
+      const char* activeAlertsObjectKey = activeAlertsObjectKeyStr.c_str();
+      const uint8_t activeAlertsObjectKeyMaxIndex = activeAlertsObjectKeyStr.length() - 1;
+
       bool isActiveAlertsObjectKeyFound = false;
       uint32_t activeAlertsObjectKeyCurrCharIndex = 0;
 
-      const char* regionIdKey = "\"regionId\":";
-      const uint8_t regionIdKeyMaxIndex = strlen(regionIdKey) - 1;
+      String regionIdKeyStr = String( F("\"regionId\":") );
+      const char* regionIdKey = regionIdKeyStr.c_str();
+      const uint8_t regionIdKeyMaxIndex = regionIdKeyStr.length() - 1;
       bool isRegionIdKeyFound = false;
       uint32_t regionIdKeyCurrCharIndex = 0;
       bool isRegionIdValue = false;
       String regionIdValue = "";
 
-      const char* regionTypeKey = "\"regionType\":";
-      const uint8_t regionTypeKeyMaxIndex = strlen(regionTypeKey) - 1;
+      String regionTypeKeyStr = String( F("\"regionType\":") );
+      const char* regionTypeKey = regionTypeKeyStr.c_str();
+      const uint8_t regionTypeKeyMaxIndex = regionTypeKeyStr.length() - 1;
       bool isRegionTypeKeyFound = false;
       uint32_t regionTypeKeyCurrCharIndex = 0;
       bool isRegionTypeValue = false;
       String regionTypeValue = "";
 
-      const char* alarmTypeKey = "\"type\":";
-      const uint8_t alarmTypeKeyMaxIndex = strlen(alarmTypeKey) - 1;
+      String alarmTypeKeyStr = String( F("\"type\":") );
+      const char* alarmTypeKey = alarmTypeKeyStr.c_str();
+      const uint8_t alarmTypeKeyMaxIndex = alarmTypeKeyStr.length() - 1;
       bool isAlarmTypeKeyFound = false;
       uint32_t alarmTypeKeyCurrCharIndex = 0;
       bool isAlarmTypeValue = false;
@@ -2025,6 +2039,11 @@ bool acProcessServerData( String payload ) {
   } else {
     acWifiRaidAlarmDataLastProcessedMillis = millis();
 
+    String apiKeyRejectedResponse = String( F("a:wrong_api_key") );
+    String apiKeyAcceptedResponse = String( F("a:ok") );
+    String pingResponseStart = String( F("p:") );
+    String dataResponseStart = String( F("s:") );
+
     uint8_t previousInternalLedStatus = getInternalLedStatus();
     setInternalLedStatus( HIGH );
     renderStripStatus( STRIP_STATUS_PROCESSING );
@@ -2039,13 +2058,13 @@ bool acProcessServerData( String payload ) {
       String packet = buffer.substring( 0, border );
       buffer = buffer.substring( border + 1 );
 
-      if( packet == "a:wrong_api_key" ) {
+      if( packet == apiKeyRejectedResponse ) {
         Serial.println( F("API key is not populated or is incorrect!") );
         delay( 30000 );
         wiFiClient.stop();
-      } else if( packet == "a:ok" ) {
+      } else if( packet == apiKeyAcceptedResponse ) {
         Serial.println( F("API key accepted by server") );
-      } else if( packet.startsWith( "s:" ) ) { //data packet received in format s:12=1
+      } else if( packet.startsWith( dataResponseStart ) ) { //data packet received in format s:12=1
         Serial.println( String( F("Received status packet: ") ) + packet.substring( packet.indexOf(':') + 1 ) );
         String receivedRegionStr = packet.substring( 2, packet.indexOf('=') );
         const char* receivedRegion = receivedRegionStr.c_str();
@@ -2059,7 +2078,7 @@ bool acProcessServerData( String payload ) {
             }
           }
         }
-      } else if( packet.startsWith( "p:" ) ) { //ping packet received
+      } else if( packet.startsWith( pingResponseStart ) ) { //ping packet received
         //Serial.println( "Received ping packet: " + packet.substring( packet.indexOf(':') + 1 ) );
       }
     }
