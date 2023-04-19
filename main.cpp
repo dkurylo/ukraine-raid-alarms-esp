@@ -448,6 +448,17 @@ void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t
   }
 }
 
+uint8_t max( uint8_t a, uint8_t b, uint8_t c ) {
+  uint8_t max_value = a;
+  if( b > max_value ) {
+    max_value = b;
+  }
+  if( c > max_value ) {
+    max_value = c;
+  }
+  return max_value;
+}
+
 
 
 //eeprom functionality
@@ -644,12 +655,12 @@ void renderStrip() {
     std::vector<uint32_t>& transitionAnimation = transitionAnimations[ledIndex];
     uint8_t alarmStatusLedIndex = ( ledIndex < STRIP_STATUS_LED_INDEX || STRIP_STATUS_LED_INDEX < 0 ) ? ledIndex : ledIndex + 1;
     uint32_t alarmStatusLedColorToRender = RAID_ALARM_STATUS_COLOR_UNKNOWN;
+    int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
     if( transitionAnimation.size() > 0 ) {
       uint32_t nextAnimationColor = transitionAnimation.front();
       transitionAnimation.erase( transitionAnimation.begin() );
       alarmStatusLedColorToRender = nextAnimationColor;
     } else {
-      int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
       for( const auto& region : allRegions[ledIndex] ) {
         int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
         if( regionLedAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
@@ -665,27 +676,57 @@ void renderStrip() {
       }
     }
 
-    uint8_t r = (uint8_t)(alarmStatusLedColorToRender >> 16), g = (uint8_t)(alarmStatusLedColorToRender >> 8), b = (uint8_t)alarmStatusLedColorToRender;
-    if( isLedDimmingNightActive() ) { //adjust led color brightness in night mode
-      uint8_t stripLedBrightnessNightCoeff = getLedDimmingNightCoeff();
-      r = (r * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
-      g = (g * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
-      b = (b * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
-    } else {
-      if( stripPartyMode ) {
-        uint16_t h = 0; uint8_t s = 0, v = 0;
-        rgbToHsv( r, g ,b, h, s, v );
-        hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
+    uint8_t r = (uint8_t)(alarmStatusLedColorToRender >> 16);
+    uint8_t g = (uint8_t)(alarmStatusLedColorToRender >> 8);
+    uint8_t b = (uint8_t)alarmStatusLedColorToRender;
+    if( alarmStatusLedColorToRender != 0 ) {
+      if( isLedDimmingNightActive() ) { //adjust led color brightness in night mode
+        uint8_t stripLedBrightnessNightCoeff = getLedDimmingNightCoeff();
+        uint8_t r_new = (r * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
+        uint8_t g_new = (g * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
+        uint8_t b_new = (b * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
+        if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
+          r = r_new;
+          g = g_new;
+          b = b_new;
+        } else {
+          uint8_t maxValue = max( r, g, b );
+          r = r == maxValue ? 1 : r_new;
+          g = g == maxValue ? 1 : g_new;
+          b = b == maxValue ? 1 : b_new;
+        }
+      } else {
+        if( stripPartyMode ) {
+          uint16_t h = 0; uint8_t s = 0, v = 0;
+          rgbToHsv( r, g ,b, h, s, v );
+          if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
+            hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
+          } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
+            hsvToRgb( ( stripPartyModeHue - h ) % 360, s, v, r, g, b );
+          }
+        }
+        uint8_t r_new = (r * stripLedBrightness) >> 8;
+        uint8_t g_new = (g * stripLedBrightness) >> 8;
+        uint8_t b_new = (b * stripLedBrightness) >> 8;
+        if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
+          r = r_new;
+          g = g_new;
+          b = b_new;
+        } else {
+          uint8_t maxValue = max( r, g, b );
+          r = r == maxValue ? 1 : r_new;
+          g = g == maxValue ? 1 : g_new;
+          b = b == maxValue ? 1 : b_new;
+        }
       }
-      r = (r * stripLedBrightness) >> 8;
-      g = (g * stripLedBrightness) >> 8;
-      b = (b * stripLedBrightness) >> 8;
     }
     alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r, g, b);
     strip.setPixelColor( alarmStatusLedIndex, alarmStatusLedColorToRender );
   }
   if( stripPartyMode ) {
-    stripPartyModeHue = ( stripPartyModeHue + 360 * DELAY_STRIP_ANIMATION / 60000 ) % 360;
+    uint16_t stripPartyModeHueChange = ( 360 * DELAY_STRIP_ANIMATION / 60000 ) % 360;
+    if( stripPartyModeHueChange == 0 ) stripPartyModeHueChange = 1;
+    stripPartyModeHue = stripPartyModeHue + stripPartyModeHueChange;
   }
 
   strip.show();
