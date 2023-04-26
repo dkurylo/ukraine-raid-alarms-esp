@@ -396,32 +396,36 @@ uint32_t getUint32Color( String hexColor ) {
 }
 
 void rgbToHsv( uint8_t r, uint8_t g, uint8_t b, uint16_t& h, uint8_t& s, uint8_t& v ) {
-  float red = (float)r / 255.0;
-  float green = (float)g / 255.0;
-  float blue = (float)b / 255.0;
+  float rf = (float)r / 255.0f;
+  float gf = (float)g / 255.0f;
+  float bf = (float)b / 255.0f;
 
-  float cmax = max( max( red, green ), blue);
-  float cmin = min( min( red, green ), blue);
+  float cmax = max( max( rf, gf ), bf );
+  float cmin = min( min( rf, gf ), bf );
   float delta = cmax - cmin;
 
-  if( delta == 0 ) {
-    h = 0;
-  } else if( cmax == red ) {
-    h = (uint8_t)( fmod( ( ( green - blue ) / delta ), 6.0 ) * 60.0 );
-  } else if (cmax == green) {
-    h = (uint8_t)( ( ( blue - red ) / delta ) + 2.0 ) * 60.0;
+  // Compute value (brightness)
+  v = (uint8_t)(cmax * 255.0f);
+
+  // Compute saturation
+  if( cmax == 0.0f ) {
+    s = 0;
   } else {
-    h = (uint8_t)( ( ( red - green ) / delta ) + 4.0 ) * 60.0;
+    s = (uint8_t)(delta / cmax * 255.0f);
+  }
+
+  if( delta == 0.0f ) {
+    h = 0;
+  } else if( cmax == rf ) {
+    h = (uint16_t)(60.0f * fmod((gf - bf) / delta, 6.0f));
+  } else if( cmax == gf ) {
+    h = (uint16_t)(60.0f * ((bf - rf) / delta + 2.0f));
+  } else if( cmax == bf ) {
+    h = (uint16_t)(60.0f * ((rf - gf) / delta + 4.0f));
   }
   if( h < 0 ) {
     h += 360;
   }
-  if( cmax == 0 ) {
-    s = 0;
-  } else {
-    s = (uint8_t)( ( delta / cmax ) * 255.0 );
-  }
-  v = (uint8_t)( cmax * 255.0 );
 }
 
 void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t& b ) {
@@ -702,7 +706,7 @@ void renderStrip() {
           if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
             hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
           } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
-            hsvToRgb( ( stripPartyModeHue - h ) % 360, s, v, r, g, b );
+            hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
           }
         }
         uint8_t r_new = (r * stripLedBrightness) >> 8;
@@ -794,7 +798,7 @@ void setStripStatus( uint8_t statusToShow ) {
 
 void renderStripStatus() {
   if( !setStripStatus() ) return;
-  renderStrip();
+  strip.show();
 }
 
 void renderStripStatus( uint8_t statusToShow ) {
@@ -839,32 +843,43 @@ void initInternalLed() {
 //time of day functionality
 bool isTimeClientInitialised = false;
 unsigned long timeClientUpdatedMillis = 0;
-void initTimeClient( bool canWait ) {
+void initTimeClient() {
   if( stripLedBrightnessDimmingNight != 255 ) {
-    if( !isTimeClientInitialised ) {
-      if( WiFi.isConnected() ) {
-        timeClient.setUpdateInterval( DELAY_NTP_TIME_SYNC );
-        Serial.print( F("Starting NTP client...") );
-        timeClient.begin();
+    if( WiFi.isConnected() && !isTimeClientInitialised ) {
+      timeClient.setUpdateInterval( DELAY_NTP_TIME_SYNC );
+      Serial.print( F("Starting NTP client...") );
+      timeClient.begin();
+      isTimeClientInitialised = true;
+      Serial.println( F(" done") );
+    }
+  } else {
+    if( isTimeClientInitialised ) {
+      isTimeClientInitialised = false;
+      Serial.print( F("Stopping NTP client...") );
+      timeClient.end();
+      Serial.println( F(" done") );
+    }
+  }
+}
+
+void updateTimeClient( bool canWait ) {
+  if( stripLedBrightnessDimmingNight != 255 ) {
+    if( WiFi.isConnected() && !timeClient.isTimeSet() ) {
+      if( !isTimeClientInitialised ) {
+        initTimeClient();
+      }
+      if( isTimeClientInitialised ) {
+        Serial.print( F("Updating NTP time...") );
         timeClient.update();
-        if( canWait && !timeClient.isTimeSet() ) {
+        if( canWait ) {
           timeClientUpdatedMillis = millis();
           while( !timeClient.isTimeSet() && ( ( millis() - timeClientUpdatedMillis ) < TIMEOUT_NTP_CLIENT_CONNECT ) ) {
             delay( 250 );
             Serial.print( "." );
           }
         }
-        if( timeClient.isTimeSet() ) {
-          isTimeClientInitialised = true;
-        }
         Serial.println( F(" done") );
       }
-    }
-  } else {
-    if( isTimeClientInitialised ) {
-      isTimeClientInitialised = false;
-      Serial.println( F("Stopping NTP client...") );
-      timeClient.end();
     }
   }
 }
@@ -993,19 +1008,8 @@ void calculateTimeOfDay( time_t dt ) {
   isUserAwake = difftime(dt, getTodayTimeAt(dt, 6 + dstBoundariesCorrection, 0)) > 0 && difftime(dt, getTodayTimeAt(dt, 19 + dstBoundariesCorrection, 0)) < 0;
 }
 
-void retrieveTimeOfDay() {
-  initTimeClient( false );
-  if( stripLedBrightnessDimmingNight == 255 ) return;
-  if( WiFi.isConnected() && !timeClient.isTimeSet() ) {
-    timeClient.update();
-  }
-}
-
 bool processTimeOfDay() {
   if( stripLedBrightnessDimmingNight == 255 ) return true;
-  if( !timeClient.isTimeSet() ) {
-    retrieveTimeOfDay();
-  }
   if( !timeClient.isTimeSet() ) return false;
   calculateTimeOfDay( timeClient.getEpochTime() );
   return true;
@@ -1015,7 +1019,7 @@ bool processTimeOfDay() {
 //data update helpers
 void forceRefreshData() {
   initVariables();
-  initTimeClient( true );
+  initTimeClient();
   forceNtpUpdate = true;
   forceNightModeUpdate = true;
   forceRaidAlarmUpdate = true;
@@ -2125,7 +2129,9 @@ bool acProcessServerData( String payload ) {
           }
         }
       } else if( packet.startsWith( pingResponseStart ) ) { //ping packet received
-        //Serial.println( "Received ping packet: " + packet.substring( packet.indexOf(':') + 1 ) );
+        //Serial.println( String( F("Received ping packet: ") ) + packet.substring( packet.indexOf(':') + 1 ) );
+      } else {
+        Serial.println( String( F("Received unknown packet: ") ) + packet );
       }
     }
     setInternalLedStatus( previousInternalLedStatus );
@@ -2724,22 +2730,17 @@ void handleWebServerPost() {
     stripLedBrightnessDimmingNight = stripLedBrightnessDimmingNightReceived;
     isStripRerenderRequired = true;
     Serial.println( F("Strip night brightness updated") );
-    initTimeClient( false );
+    initTimeClient();
+    updateTimeClient( false );
     writeEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNightReceived );
   }
 
   if( stripPartyModeReceivedPopulated && stripPartyModeReceived != stripPartyMode ) {
     stripPartyMode = stripPartyModeReceived;
-    isStripRerenderRequired = true;
+    //isStripRerenderRequired = true;
     Serial.println( F("Strip party mode updated") );
     stripPartyModeHue = 0;
     writeEepromIntValue( eepromStripPartyModeIndex, stripPartyModeReceived );
-  }
-
-  if( isStripStatusRerenderRequired ) {
-    renderStripStatus(); //render strip status renders the whole strip as well
-  } else if( isStripRerenderRequired ) {
-    renderStrip();
   }
 
   if( isDataSourceChanged ) {
@@ -2750,7 +2751,14 @@ void handleWebServerPost() {
     if( currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) { //if this not reset and UA source was used before, then the data update won't happen, since the code will think that we already have up-do-date values
       uaResetLastActionHash();
     }
+    isStripRerenderRequired = true;
     initVariables();
+  }
+
+  if( isStripStatusRerenderRequired && !isStripRerenderRequired ) {
+    renderStripStatus();
+  } else if( isStripRerenderRequired ) {
+    renderStrip();
   }
 
   if( isWiFiChanged ) {
@@ -2857,7 +2865,8 @@ void setup() {
   configureWebServer();
   connectToWiFi( true, true );
   startWebServer();
-  initTimeClient( true );
+  initTimeClient();
+  updateTimeClient( true );
 }
 
 void loop() {
@@ -2879,7 +2888,7 @@ void loop() {
   if( ( isFirstLoopRun || forceNtpUpdate || forceNightModeUpdate || ( ( millis() - previousMillisNightModeCheck ) >= DELAY_NIGHT_MODE_CHECK ) ) ) {
     if( forceNtpUpdate || !forceNightModeUpdate ) {
       forceNtpUpdate = false;
-      retrieveTimeOfDay();
+      updateTimeClient( false );
     }
     if( processTimeOfDay() ) {
       forceNightModeUpdate = false;
