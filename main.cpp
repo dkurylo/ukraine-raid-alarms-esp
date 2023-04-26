@@ -1005,7 +1005,7 @@ void calculateTimeOfDay( time_t dt ) {
     }
   }
   int8_t dstBoundariesCorrection = isWithinDstBoundaries( dt ) ? -1 : 0;
-  isUserAwake = difftime(dt, getTodayTimeAt(dt, 6 + dstBoundariesCorrection, 0)) > 0 && difftime(dt, getTodayTimeAt(dt, 19 + dstBoundariesCorrection, 0)) < 0;
+  isUserAwake = difftime(dt, getTodayTimeAt(dt, 6 + dstBoundariesCorrection, 0)) > 0 && difftime(dt, getTodayTimeAt(dt, 19 + dstBoundariesCorrection, 30)) < 0;
 }
 
 bool processTimeOfDay() {
