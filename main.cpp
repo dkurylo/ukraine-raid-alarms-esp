@@ -82,7 +82,7 @@ const uint16_t DELAY_INTERNAL_LED_ANIMATION_LOW = 59800;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
 
 //night mode settings
-const uint16_t TIMEOUT_NTP_CLIENT_CONNECT = 2000;
+const uint16_t TIMEOUT_NTP_CLIENT_CONNECT = 2500;
 const uint16_t DELAY_NIGHT_MODE_CHECK = 60000;
 const uint32_t DELAY_NTP_TIME_SYNC = 3600000;
 
@@ -762,7 +762,7 @@ bool setStripStatus() {
     ledColor = Adafruit_NeoPixel::Color(15, 0, 0);
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING ) {
-    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode && !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 2);
+    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode && !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 1) : Adafruit_NeoPixel::Color(0, 0, 2);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_BLACK || ( !showStripIdleStatusLed && statusLedColor == STRIP_STATUS_OK ) ) {
     ledColor = Adafruit_NeoPixel::Color(0, 0, 0);
@@ -843,7 +843,6 @@ void initTimeClient( bool canWait ) {
   if( stripLedBrightnessDimmingNight != 255 ) {
     if( !isTimeClientInitialised ) {
       if( WiFi.isConnected() ) {
-        isTimeClientInitialised = true;
         timeClient.setUpdateInterval( DELAY_NTP_TIME_SYNC );
         Serial.print( F("Starting NTP client...") );
         timeClient.begin();
@@ -851,9 +850,12 @@ void initTimeClient( bool canWait ) {
         if( canWait && !timeClient.isTimeSet() ) {
           timeClientUpdatedMillis = millis();
           while( !timeClient.isTimeSet() && ( ( millis() - timeClientUpdatedMillis ) < TIMEOUT_NTP_CLIENT_CONNECT ) ) {
-            delay( 100 );
+            delay( 250 );
             Serial.print( "." );
           }
+        }
+        if( timeClient.isTimeSet() ) {
+          isTimeClientInitialised = true;
         }
         Serial.println( F(" done") );
       }
@@ -1001,6 +1003,9 @@ void retrieveTimeOfDay() {
 
 bool processTimeOfDay() {
   if( stripLedBrightnessDimmingNight == 255 ) return true;
+  if( !timeClient.isTimeSet() ) {
+    retrieveTimeOfDay();
+  }
   if( !timeClient.isTimeSet() ) return false;
   calculateTimeOfDay( timeClient.getEpochTime() );
   return true;
@@ -2872,7 +2877,6 @@ void loop() {
   }
 
   if( ( isFirstLoopRun || forceNtpUpdate || forceNightModeUpdate || ( ( millis() - previousMillisNightModeCheck ) >= DELAY_NIGHT_MODE_CHECK ) ) ) {
-    previousMillisNightModeCheck = millis();
     if( forceNtpUpdate || !forceNightModeUpdate ) {
       forceNtpUpdate = false;
       retrieveTimeOfDay();
@@ -2880,52 +2884,50 @@ void loop() {
     if( processTimeOfDay() ) {
       forceNightModeUpdate = false;
     }
+    previousMillisNightModeCheck = millis();
   }
 
   switch( currentRaidAlarmServer ) {
     case VK_RAID_ALARM_SERVER:
       if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
         forceRaidAlarmUpdate = false;
-        previousMillisRaidAlarmCheck = millis();
         if( WiFi.isConnected() ) {
           vkRetrieveAndProcessServerData();
         } else {
           resetAlarmStatusAndConnectToWiFi();
         }
+        previousMillisRaidAlarmCheck = millis();
       }
       break;
     case UA_RAID_ALARM_SERVER:
       if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
         forceRaidAlarmUpdate = false;
-        previousMillisRaidAlarmCheck = millis();
         if( WiFi.isConnected() ) {
           uaRetrieveAndProcessServerData();
         } else {
           resetAlarmStatusAndConnectToWiFi();
         }
+        previousMillisRaidAlarmCheck = millis();
       }
       break;
     case AC_RAID_ALARM_SERVER:
-      if( acRetrieveAndProcessServerData() ) {
-        previousMillisLedAnimation = millis();
-        renderStrip();
-      }
+      acRetrieveAndProcessServerData();
       if( isFirstLoopRun || forceRaidAlarmUpdate || ( ( millis() - previousMillisRaidAlarmCheck ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
-        previousMillisRaidAlarmCheck = millis();
         if( !WiFi.isConnected() ) {
           resetAlarmStatusAndConnectToWiFi();
         }
+        previousMillisRaidAlarmCheck = millis();
       }
       break;
     case AI_RAID_ALARM_SERVER:
       if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
         forceRaidAlarmUpdate = false;
-        previousMillisRaidAlarmCheck = millis();
         if( WiFi.isConnected() ) {
           aiRetrieveAndProcessServerData();
         } else {
           resetAlarmStatusAndConnectToWiFi();
         }
+        previousMillisRaidAlarmCheck = millis();
       }
       break;
     default:
