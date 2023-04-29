@@ -299,7 +299,7 @@ const int8_t RAID_ALARM_STATUS_ACTIVE = 1;
 uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(91, 15, 0);
 uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(127, 127, 0);
 uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(15, 63, 0);
-uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(127, 127, 0);
+uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(179, 179, 0);
 
 std::map<const char*, int8_t> regionToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
 std::vector<std::vector<uint32_t>> transitionAnimations; //populated automatically
@@ -429,27 +429,36 @@ void rgbToHsv( uint8_t r, uint8_t g, uint8_t b, uint16_t& h, uint8_t& s, uint8_t
 }
 
 void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t& b ) {
-  uint8_t region, remainder, p, q, t;
-  if( s == 0 ) {
-    r = v; g = v; b = v;
-    return;
-  }
-
-  region = h / 60;
-  remainder = (h % 60) * 4;
-
-  p = (v * (255 - s)) >> 8;
-  q = (v * (255 - ((s * remainder) >> 8))) >> 8;
-  t = (v * (255 - ((s * (255 - remainder)) >> 8))) >> 8;
-
-  switch (region) {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    default: r = v; g = p; b = q; break;
-  }
+    float fh = h / 359.0f;
+    float fs = s / 255.0f;
+    float fv = v / 255.0f;
+    
+    // calculate the corresponding rgb values
+    float fC = fv * fs;                 // chroma
+    float fH = fh * 6.0f;               // hue sector
+    float fX = fC * (1.0f - fabs(fmod(fH, 2.0f) - 1.0f)); // second largest component
+    float fM = fv - fC;                 // value minus chroma
+    
+    float fR, fG, fB;                   // final rgb values
+    if (0.0f <= fH && fH < 1.0f) {
+        fR = fC; fG = fX; fB = 0.0f;
+    } else if (1.0f <= fH && fH < 2.0f) {
+        fR = fX; fG = fC; fB = 0.0f;
+    } else if (2.0f <= fH && fH < 3.0f) {
+        fR = 0.0f; fG = fC; fB = fX;
+    } else if (3.0f <= fH && fH < 4.0f) {
+        fR = 0.0f; fG = fX; fB = fC;
+    } else if (4.0f <= fH && fH < 5.0f) {
+        fR = fX; fG = 0.0f; fB = fC;
+    } else if (5.0f <= fH && fH < 6.0f) {
+        fR = fC; fG = 0.0f; fB = fX;
+    } else {
+        fR = 0.0f; fG = 0.0f; fB = 0.0f;
+    }
+    
+    r = (uint8_t)((fR + fM) * 255);
+    g = (uint8_t)((fG + fM) * 255);
+    b = (uint8_t)((fB + fM) * 255);
 }
 
 uint8_t max( uint8_t a, uint8_t b, uint8_t c ) {
@@ -1114,10 +1123,10 @@ void connectToWiFi( bool forceConnect, bool tryNewCredentials ) { //wifi creds a
     return;
   }
 
-  if( forceConnect || tryNewCredentials ) {
+  if( forceConnect || tryNewCredentials || ( !isApInitialized && !WiFi.isConnected() ) ) {
     Serial.print( String( F("Connecting to WiFi '") ) + String( wiFiClientSsid ) + "'..." );
     WiFi.hostname( ( String( getWiFiHostName() ) + "-" + String( ESP.getChipId() ) ).c_str() );
-    if( tryNewCredentials ) {
+    if( tryNewCredentials || ( !isApInitialized && !WiFi.isConnected() ) ) {
       WiFi.begin( wiFiClientSsid, wiFiClientPassword ); //when calling WiFi.begin( ssid, pwd ), credentials are stored in NVM, no matter if they are the same or differ
     } else {
       WiFi.begin(); //when you don't expect credentials to be changed, you need to connect using WiFi.begin() which will load already stored creds from NVM in order to save NVM duty cycles
@@ -1142,7 +1151,7 @@ void connectToWiFi( bool forceConnect, bool tryNewCredentials ) { //wifi creds a
 void resetAlarmStatusAndConnectToWiFi() {
   initAlarmStatus();
   if( !isApInitialized ) {
-    connectToWiFi( false, false );
+    connectToWiFi( true, false );
   }
 }
 
