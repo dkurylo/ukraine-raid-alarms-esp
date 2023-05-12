@@ -52,7 +52,7 @@ const uint8_t STRIP_PIN = 0;
 #else //ESP32 or ESP32S2
 const uint8_t STRIP_PIN = 18;
 #endif
-const uint16_t DELAY_STRIP_ANIMATION = 500; //led animation speed, in ms
+const uint16_t DELAY_DISPLAY_ANIMATION = 500; //led animation speed, in ms
 
 //addressable led strip status led colors confg
 const uint8_t STRIP_STATUS_BLACK = 0;
@@ -141,7 +141,6 @@ const std::vector<std::vector<const char*>> getVkRegions() {
 const uint8_t UA_RAID_ALARM_SERVER = 2;
 const char* getUaRaidAlarmServerUrl() { const char* result = "https://api.ukrainealarm.com/api/v3/alerts"; return result; };
 const char* getUaRaidAlarmServerStatusEndpoint() { const char* result = "/status"; return result; };
-const char* getUaRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
 const uint16_t DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 10000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
 
 const std::vector<std::vector<const char*>> getUaRegions() {
@@ -184,7 +183,6 @@ const std::vector<std::vector<const char*>> getUaRegions() {
 const uint8_t AC_RAID_ALARM_SERVER = 3;
 const char* getAcRaidAlarmServerName() { const char* result = "tcp.alerts.com.ua"; return result; };
 const uint16_t getAcRaidAlarmServerPort() { const uint16_t result = 1024; return result; };
-const char* getAcRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
 const uint16_t DELAY_AC_WIFI_CONNECTION_CHECK = 15000; //wifi connection check frequency in ms
 
 const std::vector<std::vector<const char*>> getAcRegions() {
@@ -226,7 +224,6 @@ const std::vector<std::vector<const char*>> getAcRegions() {
 //- Requires API_KEY to function
 const uint8_t AI_RAID_ALARM_SERVER = 4;
 const char* getAiRaidAlarmServerUrl() { const char* result = "https://api.alerts.in.ua/v1/iot/active_air_raid_alerts_by_oblast.json"; return result; };
-const char* getAiRaidAlarmServerApiKey() { const char* result = "API_KEY"; return result; };
 const uint16_t DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK = 17000; //wifi connection and raid alarm check frequency in ms; NOTE: 15000ms is the minimum check frequency!
 
 //response example: "ANNNNNNNNNNNANNNNNNNNNNNNNN"
@@ -279,6 +276,8 @@ const uint16_t TIMEOUT_TCP_SERVER_DATA = 60000; //if server does not send anythi
 //variables used in the code, don't change anything here
 char wiFiClientSsid[WIFI_SSID_MAX_LENGTH];
 char wiFiClientPassword[WIFI_PASSWORD_MAX_LENGTH];
+const uint8_t RAID_ALARM_SERVER_API_KEY_LENGTH = 64;
+char raidAlarmServerApiKey[RAID_ALARM_SERVER_API_KEY_LENGTH];
 
 bool showOnlyActiveAlarms = false;
 bool showStripIdleStatusLed = false;
@@ -378,6 +377,14 @@ void initVariables() {
 
 
 //helper methods
+unsigned long calculateDiffMillis( unsigned long startMillis, unsigned long endMillis ) { //this function accounts for millis overflow when calculating millis difference
+  if( endMillis >= startMillis ) {
+    return endMillis - startMillis;
+  } else {
+    return( ULONG_MAX - startMillis ) + endMillis + 1;
+  }
+}
+
 String getHexColor( uint32_t color ) {
   uint8_t red = (color >> 16) & 0xFF;
   uint8_t green = (color >> 8) & 0xFF;
@@ -475,29 +482,33 @@ uint8_t max( uint8_t a, uint8_t b, uint8_t c ) {
 
 
 //eeprom functionality
-const uint8_t EEPROM_ALLOCATED_SIZE = 83;
+const uint16_t eepromIsNewBoardIndex = 0;
+const uint16_t eepromWiFiSsidIndex = eepromIsNewBoardIndex + 1;
+const uint16_t eepromWiFiPasswordIndex = eepromWiFiSsidIndex + WIFI_SSID_MAX_LENGTH;
+const uint16_t eepromRaidAlarmServerIndex = eepromWiFiPasswordIndex + WIFI_PASSWORD_MAX_LENGTH;
+const uint16_t eepromShowOnlyActiveAlarmsIndex = eepromRaidAlarmServerIndex + 1;
+const uint16_t eepromShowStripIdleStatusLedIndex = eepromShowOnlyActiveAlarmsIndex + 1;
+const uint16_t eepromStripLedBrightnessIndex = eepromShowStripIdleStatusLedIndex + 1;
+const uint16_t eepromAlarmOnColorIndex = eepromStripLedBrightnessIndex + 1;
+const uint16_t eepromAlarmOffColorIndex = eepromAlarmOnColorIndex + 3;
+const uint16_t eepromAlarmOnOffIndex = eepromAlarmOffColorIndex + 3;
+const uint16_t eepromAlarmOffOnIndex = eepromAlarmOnOffIndex + 3;
+const uint16_t eepromStripLedBrightnessDimmingNightIndex = eepromAlarmOffOnIndex + 3;
+const uint16_t eepromStripPartyModeIndex = eepromStripLedBrightnessDimmingNightIndex + 1;
+const uint16_t eepromUaRaidAlarmApiKeyIndex = eepromStripPartyModeIndex + 1;
+const uint16_t eepromAcRaidAlarmApiKeyIndex = eepromUaRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
+const uint16_t eepromAiRaidAlarmApiKeyIndex = eepromAcRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
+const uint16_t eepromLastByteIndex = eepromAiRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
+
+const uint16_t EEPROM_ALLOCATED_SIZE = eepromLastByteIndex;
 void initEeprom() {
   EEPROM.begin( EEPROM_ALLOCATED_SIZE ); //init this many bytes
 }
 
-const uint8_t eepromIsNewBoardIndex = 0;
-const uint8_t eepromWiFiSsidIndex = eepromIsNewBoardIndex + 1;
-const uint8_t eepromWiFiPasswordIndex = eepromWiFiSsidIndex + WIFI_SSID_MAX_LENGTH;
-const uint8_t eepromRaidAlarmServerIndex = eepromWiFiPasswordIndex + WIFI_PASSWORD_MAX_LENGTH;
-const uint8_t eepromShowOnlyActiveAlarmsIndex = eepromRaidAlarmServerIndex + 1;
-const uint8_t eepromShowStripIdleStatusLedIndex = eepromShowOnlyActiveAlarmsIndex + 1;
-const uint8_t eepromStripLedBrightnessIndex = eepromShowStripIdleStatusLedIndex + 1;
-const uint8_t eepromAlarmOnColorIndex = eepromStripLedBrightnessIndex + 1;
-const uint8_t eepromAlarmOffColorIndex = eepromAlarmOnColorIndex + 3;
-const uint8_t eepromAlarmOnOffIndex = eepromAlarmOffColorIndex + 3;
-const uint8_t eepromAlarmOffOnIndex = eepromAlarmOnOffIndex + 3;
-const uint8_t eepromStripLedBrightnessDimmingNightIndex = eepromAlarmOffOnIndex + 3;
-const uint8_t eepromStripPartyModeIndex = eepromStripLedBrightnessDimmingNightIndex + 1;
-
-bool readEepromCharArray( const uint8_t& eepromIndex, char* variableWithValue, uint8_t maxLength, bool doApplyValue ) {
+bool readEepromCharArray( const uint16_t& eepromIndex, char* variableWithValue, uint8_t maxLength, bool doApplyValue ) {
   bool isDifferentValue = false;
-  uint8_t eepromStartIndex = eepromIndex;
-  for( uint8_t i = eepromStartIndex; i < eepromStartIndex + maxLength; i++ ) {
+  uint16_t eepromStartIndex = eepromIndex;
+  for( uint16_t i = eepromStartIndex; i < eepromStartIndex + maxLength; i++ ) {
     char eepromChar = EEPROM.read(i);
     if( doApplyValue ) {
       variableWithValue[i-eepromStartIndex] = eepromChar;
@@ -508,11 +519,11 @@ bool readEepromCharArray( const uint8_t& eepromIndex, char* variableWithValue, u
   return isDifferentValue;
 }
 
-bool writeEepromCharArray( const uint8_t& eepromIndex, char* newValue, uint8_t maxLength ) {
+bool writeEepromCharArray( const uint16_t& eepromIndex, char* newValue, uint8_t maxLength ) {
   bool isDifferentValue = readEepromCharArray( eepromIndex, newValue, maxLength, false );
   if( !isDifferentValue ) return false;
-  uint8_t eepromStartIndex = eepromIndex;
-  for( uint8_t i = eepromStartIndex; i < eepromStartIndex + maxLength; i++ ) {
+  uint16_t eepromStartIndex = eepromIndex;
+  for( uint16_t i = eepromStartIndex; i < eepromStartIndex + maxLength; i++ ) {
     EEPROM.write( i, newValue[i-eepromStartIndex] );
   }
   EEPROM.commit();
@@ -520,7 +531,7 @@ bool writeEepromCharArray( const uint8_t& eepromIndex, char* newValue, uint8_t m
   return true;
 }
 
-uint8_t readEepromIntValue( const uint8_t& eepromIndex, uint8_t& variableWithValue, bool doApplyValue ) {
+uint8_t readEepromIntValue( const uint16_t& eepromIndex, uint8_t& variableWithValue, bool doApplyValue ) {
   uint8_t eepromValue = EEPROM.read( eepromIndex );
   if( doApplyValue ) {
     variableWithValue = eepromValue;
@@ -528,7 +539,7 @@ uint8_t readEepromIntValue( const uint8_t& eepromIndex, uint8_t& variableWithVal
   return eepromValue;
 }
 
-bool writeEepromIntValue( const uint8_t& eepromIndex, uint8_t newValue ) {
+bool writeEepromIntValue( const uint16_t& eepromIndex, uint8_t newValue ) {
   bool eepromWritten = false;
   if( readEepromIntValue( eepromIndex, newValue, false ) != newValue ) {
     EEPROM.write( eepromIndex, newValue );
@@ -541,7 +552,7 @@ bool writeEepromIntValue( const uint8_t& eepromIndex, uint8_t newValue ) {
   return eepromWritten;
 }
 
-bool readEepromBoolValue( const uint8_t& eepromIndex, bool& variableWithValue, bool doApplyValue ) {
+bool readEepromBoolValue( const uint16_t& eepromIndex, bool& variableWithValue, bool doApplyValue ) {
   uint8_t eepromValue = EEPROM.read( eepromIndex ) != 0 ? 1 : 0;
   if( doApplyValue ) {
     variableWithValue = eepromValue;
@@ -549,7 +560,7 @@ bool readEepromBoolValue( const uint8_t& eepromIndex, bool& variableWithValue, b
   return eepromValue;
 }
 
-bool writeEepromBoolValue( const uint8_t& eepromIndex, bool newValue ) {
+bool writeEepromBoolValue( const uint16_t& eepromIndex, bool newValue ) {
   bool eepromWritten = false;
   if( readEepromBoolValue( eepromIndex, newValue, false ) != newValue ) {
     EEPROM.write( eepromIndex, newValue ? 1 : 0 );
@@ -562,8 +573,8 @@ bool writeEepromBoolValue( const uint8_t& eepromIndex, bool newValue ) {
   return eepromWritten;
 }
 
-uint32_t readEepromColor( const uint8_t& eepromIndex, uint32_t& variableWithValue, bool doApplyValue ) {
-  uint8_t r = EEPROM.read( eepromIndex );
+uint32_t readEepromColor( const uint16_t& eepromIndex, uint32_t& variableWithValue, bool doApplyValue ) {
+  uint8_t r = EEPROM.read( eepromIndex     );
   uint8_t g = EEPROM.read( eepromIndex + 1 );
   uint8_t b = EEPROM.read( eepromIndex + 2 );
   uint32_t color = (r << 16) | (g << 8) | b;
@@ -573,12 +584,12 @@ uint32_t readEepromColor( const uint8_t& eepromIndex, uint32_t& variableWithValu
   return color;
 }
 
-bool writeEepromColor( const uint8_t& eepromIndex, uint32_t newValue ) {
+bool writeEepromColor( const uint16_t& eepromIndex, uint32_t newValue ) {
   bool eepromWritten = false;
   if( readEepromColor( eepromIndex, newValue, false ) != newValue ) {
-    EEPROM.write( eepromIndex, (newValue >> 16) & 0xFF );
-    EEPROM.write( eepromIndex + 1, (newValue >> 8) & 0xFF );
-    EEPROM.write( eepromIndex + 2, newValue & 0xFF );
+    EEPROM.write( eepromIndex,     (newValue >> 16) & 0xFF );
+    EEPROM.write( eepromIndex + 1, (newValue >>  8) & 0xFF );
+    EEPROM.write( eepromIndex + 2,  newValue        & 0xFF );
     eepromWritten = true;
   }
   if( eepromWritten ) {
@@ -586,6 +597,28 @@ bool writeEepromColor( const uint8_t& eepromIndex, uint32_t newValue ) {
     delay( 20 );
   }
   return eepromWritten;
+}
+
+String readRaidAlarmServerApiKey( int8_t serverName ) { //-1 populates the api key for the current server
+  uint8_t serverNameToRead = serverName == -1 ? currentRaidAlarmServer : serverName;
+  char serverApiKey[RAID_ALARM_SERVER_API_KEY_LENGTH];
+  switch( serverNameToRead ) {
+    case UA_RAID_ALARM_SERVER:
+      readEepromCharArray( eepromUaRaidAlarmApiKeyIndex, serverApiKey, RAID_ALARM_SERVER_API_KEY_LENGTH, true );
+      break;
+    case AC_RAID_ALARM_SERVER:
+      readEepromCharArray( eepromAcRaidAlarmApiKeyIndex, serverApiKey, RAID_ALARM_SERVER_API_KEY_LENGTH, true );
+      break;
+    case AI_RAID_ALARM_SERVER:
+      readEepromCharArray( eepromAiRaidAlarmApiKeyIndex, serverApiKey, RAID_ALARM_SERVER_API_KEY_LENGTH, true );
+      break;
+    default:
+      break;
+  }
+  if( serverName == -1 ) {
+    strcpy( raidAlarmServerApiKey, serverApiKey );
+  }
+  return String( serverApiKey );
 }
 
 void loadEepromData() {
@@ -604,6 +637,7 @@ void loadEepromData() {
     readEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink, true );
     readEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight, true );
     readEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode, true );
+    readRaidAlarmServerApiKey( -1 );
 
   } else { //fill EEPROM with default values when starting the new board
     writeEepromBoolValue( eepromIsNewBoardIndex, false );
@@ -620,6 +654,10 @@ void loadEepromData() {
     writeEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink );
     writeEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight );
     writeEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode );
+    char raidAlarmServerApiKeyEmpty[RAID_ALARM_SERVER_API_KEY_LENGTH];
+    writeEepromCharArray( eepromUaRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    writeEepromCharArray( eepromAiRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
 
     isNewBoard = false;
   }
@@ -659,7 +697,14 @@ bool isLedDimmingNightActive() {
 }
 
 uint8_t getLedDimmingNightCoeff() {
-  return  stripLedBrightnessDimmingNight + ( ( isNightModeTest || ( isNightMode && !isUserAwake ) ) ? 0 : ( ( 255 + stripLedBrightnessDimmingNight ) / 2 ) );
+  if( isNightModeTest || ( isNightMode && !isUserAwake ) ) {
+    return stripLedBrightnessDimmingNight;
+  } else if( isNightMode && isUserAwake ) {
+    uint16_t result = ( stripLedBrightnessDimmingNight + ( stripLedBrightness + stripLedBrightnessDimmingNight ) ) / 3;
+    return (uint8_t)result;
+  } else {
+    return stripLedBrightness;
+  }
 }
 
 void renderStrip() {
@@ -737,7 +782,7 @@ void renderStrip() {
     strip.setPixelColor( alarmStatusLedIndex, alarmStatusLedColorToRender );
   }
   if( stripPartyMode ) {
-    uint16_t stripPartyModeHueChange = ( 360 * DELAY_STRIP_ANIMATION / 60000 ) % 360;
+    uint16_t stripPartyModeHueChange = ( 360 * DELAY_DISPLAY_ANIMATION / 60000 ) % 360;
     if( stripPartyModeHueChange == 0 ) stripPartyModeHueChange = 1;
     stripPartyModeHue = stripPartyModeHue + stripPartyModeHueChange;
   }
@@ -852,6 +897,7 @@ void initInternalLed() {
 //time of day functionality
 bool isTimeClientInitialised = false;
 unsigned long timeClientUpdatedMillis = 0;
+bool timeClientTimeInitStatus = false;
 void initTimeClient() {
   if( stripLedBrightnessDimmingNight != 255 ) {
     if( WiFi.isConnected() && !isTimeClientInitialised ) {
@@ -866,14 +912,16 @@ void initTimeClient() {
       isTimeClientInitialised = false;
       Serial.print( F("Stopping NTP client...") );
       timeClient.end();
+      timeClientTimeInitStatus = false;
       Serial.println( F(" done") );
     }
   }
 }
 
-void updateTimeClient( bool canWait ) {
+bool updateTimeClient( bool canWait ) {
   if( stripLedBrightnessDimmingNight != 255 ) {
-    if( WiFi.isConnected() && !timeClient.isTimeSet() ) {
+    if( !WiFi.isConnected() ) return false;
+    if( !timeClient.isTimeSet() ) {
       if( !isTimeClientInitialised ) {
         initTimeClient();
       }
@@ -882,7 +930,7 @@ void updateTimeClient( bool canWait ) {
         timeClient.update();
         if( canWait ) {
           timeClientUpdatedMillis = millis();
-          while( !timeClient.isTimeSet() && ( ( millis() - timeClientUpdatedMillis ) < TIMEOUT_NTP_CLIENT_CONNECT ) ) {
+          while( !timeClient.isTimeSet() && ( calculateDiffMillis( timeClientUpdatedMillis, millis() ) < TIMEOUT_NTP_CLIENT_CONNECT ) ) {
             delay( 250 );
             Serial.print( "." );
           }
@@ -891,6 +939,7 @@ void updateTimeClient( bool canWait ) {
       }
     }
   }
+  return true;
 }
 
 time_t getTodayTimeAt( time_t dt, int hour, int minute ) {
@@ -1029,7 +1078,7 @@ bool processTimeOfDay() {
 void forceRefreshData() {
   initVariables();
   initTimeClient();
-  forceNtpUpdate = true;
+  //forceNtpUpdate = true;
   forceNightModeUpdate = true;
   forceRaidAlarmUpdate = true;
 }
@@ -1106,7 +1155,7 @@ void processWiFiConnectionWithWait() {
       shutdownAccessPoint();
       forceRefreshData();
       break;
-    } else if( ( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) && ( ( millis() - wiFiConnectStartedMillis ) >= TIMEOUT_CONNECT_WIFI ) ) {
+    } else if( ( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) && ( calculateDiffMillis( wiFiConnectStartedMillis, millis() ) >= TIMEOUT_CONNECT_WIFI ) ) {
       Serial.println( String( F(" ERROR: ") ) + getWiFiStatusText( wifiStatus ) );
       renderStripStatus( STRIP_STATUS_WIFI_ERROR );
       setInternalLedStatus( previousInternalLedStatus );
@@ -1428,7 +1477,7 @@ void vkRetrieveAndProcessServerData() {
       char responseCurrChar;
 
       WiFiClient *stream = httpClient.getStreamPtr();
-      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
+      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( calculateDiffMillis( httpRequestIssuedMillis, millis() ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
         uint32_t numBytesAvailable = stream->available();
         if( numBytesAvailable == 0 ) {
           yield();
@@ -1525,7 +1574,7 @@ void vkRetrieveAndProcessServerData() {
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
       }
     } else {
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
@@ -1572,7 +1621,7 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
   httpClient.begin( wiFiClient, String( getUaRaidAlarmServerUrl() ) + String( getUaRaidAlarmServerStatusEndpoint() ) );
   httpClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
   httpClient.setFollowRedirects( HTTPC_STRICT_FOLLOW_REDIRECTS );
-  httpClient.addHeader( F("Authorization"), String( getUaRaidAlarmServerApiKey() ) );
+  httpClient.addHeader( F("Authorization"), String( raidAlarmServerApiKey ) );
   httpClient.addHeader( F("Cache-Control"), F("no-cache") );
   httpClient.addHeader( F("Connection"), F("close") );
 
@@ -1623,7 +1672,7 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
 
       
       WiFiClient *stream = httpClient.getStreamPtr();
-      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
+      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( calculateDiffMillis( httpRequestIssuedMillis, millis() ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
         uint32_t numBytesAvailable = stream->available();
         if( numBytesAvailable == 0 ) {
           yield();
@@ -1705,7 +1754,7 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
       }
     } else if( httpCode == 304 ) {
       setStripStatus( STRIP_STATUS_OK );
@@ -1784,7 +1833,7 @@ void uaRetrieveAndProcessServerData() {
   httpClient.begin( wiFiClient, getUaRaidAlarmServerUrl() );
   httpClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
   httpClient.setFollowRedirects( HTTPC_STRICT_FOLLOW_REDIRECTS );
-  httpClient.addHeader( F("Authorization"), String( getUaRaidAlarmServerApiKey() ) );
+  httpClient.addHeader( F("Authorization"), String( raidAlarmServerApiKey ) );
   httpClient.addHeader( F("Cache-Control"), F("no-cache") );
   httpClient.addHeader( F("Connection"), F("close") );
 
@@ -1864,7 +1913,7 @@ void uaRetrieveAndProcessServerData() {
       char responseCurrChar;
       
       WiFiClient *stream = httpClient.getStreamPtr();
-      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
+      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( calculateDiffMillis( httpRequestIssuedMillis, millis() ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
         uint32_t numBytesAvailable = stream->available();
         if( numBytesAvailable == 0 ) {
           yield();
@@ -2049,7 +2098,7 @@ void uaRetrieveAndProcessServerData() {
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
       }
     } else if( httpCode == 304 ) {
       setStripStatus( STRIP_STATUS_OK );
@@ -2155,7 +2204,7 @@ bool acRetrieveAndProcessServerData() {
   if( !WiFi.isConnected() ) return false;
 
   bool doReconnectToServer = false;
-  if( wiFiClient.connected() && ( ( millis() - acWifiRaidAlarmDataLastProcessedMillis ) > TIMEOUT_TCP_SERVER_DATA ) ) {
+  if( wiFiClient.connected() && ( calculateDiffMillis( acWifiRaidAlarmDataLastProcessedMillis, millis() ) > TIMEOUT_TCP_SERVER_DATA ) ) {
     Serial.println( String( F("Server has not sent anything within ") ) + String( TIMEOUT_TCP_SERVER_DATA ) + String( F("ms. Assuming dead connection. Reconnecting...") ) );
     wiFiClient.stop();
     doReconnectToServer = true;
@@ -2170,7 +2219,7 @@ bool acRetrieveAndProcessServerData() {
     unsigned long connectToServerRequestedMillis = millis();
     wiFiClient.connect( getAcRaidAlarmServerName(), getAcRaidAlarmServerPort() );
     while( !wiFiClient.connected() ) {
-      if( ( millis() - connectToServerRequestedMillis ) >= TIMEOUT_TCP_CONNECTION_LONG ) {
+      if( calculateDiffMillis( connectToServerRequestedMillis, millis() ) >= TIMEOUT_TCP_CONNECTION_LONG ) {
         break;
       }
       Serial.print( "." );
@@ -2178,7 +2227,7 @@ bool acRetrieveAndProcessServerData() {
     }
     if( wiFiClient.connected() ) {
       acWifiRaidAlarmDataLastProcessedMillis = millis();
-      wiFiClient.write( getAcRaidAlarmServerApiKey() );
+      wiFiClient.write( raidAlarmServerApiKey );
       setStripStatus( STRIP_STATUS_OK );
       Serial.println( F(" done") );
     } else {
@@ -2257,7 +2306,7 @@ void aiRetrieveAndProcessServerData() {
   httpClient.begin( wiFiClient, getAiRaidAlarmServerUrl() );
   httpClient.setTimeout( TIMEOUT_HTTP_CONNECTION );
   httpClient.setFollowRedirects( HTTPC_STRICT_FOLLOW_REDIRECTS );
-  httpClient.addHeader( F("Authorization"), String( F("Bearer ") ) + String( getAiRaidAlarmServerApiKey() ) );
+  httpClient.addHeader( F("Authorization"), String( F("Bearer ") ) + String( raidAlarmServerApiKey ) );
   httpClient.addHeader( F("Cache-Control"), F("no-cache") );
   httpClient.addHeader( F("Connection"), F("close") );
 
@@ -2299,7 +2348,7 @@ void aiRetrieveAndProcessServerData() {
       char responseCurrChar;
 
       WiFiClient *stream = httpClient.getStreamPtr();
-      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( ( millis() - httpRequestIssuedMillis ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
+      while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( calculateDiffMillis( httpRequestIssuedMillis, millis() ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
         uint32_t numBytesAvailable = stream->available();
         if( numBytesAvailable == 0 ) {
           yield();
@@ -2342,7 +2391,7 @@ void aiRetrieveAndProcessServerData() {
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
         setStripStatus( STRIP_STATUS_OK );
-        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( millis() - processingTimeStartMillis ) );
+        Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
       }
     } else if( httpCode == 304 ) {
       setStripStatus( STRIP_STATUS_OK );
@@ -2389,7 +2438,12 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.3em;margin-bottom:0.3em;}"
       ".fx{display:flex;flex-wrap:wrap;margin:auto;margin-top:0.3em;}"
       ".fx .fi{display:flex;align-items:center;margin-top:0.3em;width:100%;}"
-      ".fx .fi:first-of-type{margin-top:0;}"
+      ".fx .fi:first-of-type,.fx.fv .fi{margin-top:0;}"
+      ".fv{flex-direction:column;align-items:flex-start;}"
+      ".ex.ext:before{color:#888;cursor:pointer;content:\"▶\";}"
+      ".ex.exon .ex.ext:before{content:\"▼\";}"
+      ".ex.exc{height:0;margin-top:0;}.ex.exc>*{visibility:hidden;}"
+      ".ex.exc.exon{height:inherit;}.ex.exc.exon>*{visibility:initial;}"
       "label{flex:none;padding-right:0.6em;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
       "input{width:100%;padding:0.1em 0.2em;}"
       "input[type=\"radio\"],input[type=\"checkbox\"]{flex:none;margin:0.1em 0;width:calc(var(--f)*1.2);height:calc(var(--f)*1.2);}"
@@ -2405,6 +2459,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".sub+.sub{padding-left:0.6em;}"
       ".ft{margin-top:1em;}"
       ".pl{padding-left:0.6em;}"
+      ".pll{padding-left:calc(var(--f)*1.2 + 0.6em);}"
       ".lnk{margin:auto;color:#AAA;}"
       ".i{color:#CCC;margin-left:0.2em;border:1px solid #777;border-radius:50%;background-color:#666;cursor:default;font-size:65%;vertical-align:top;width:1em;height:1em;display:inline-block;text-align:center;}"
       ".i:before{content:\"i\";position:relative;top:-0.07em;}"
@@ -2467,6 +2522,7 @@ String getHtmlInput( String label, const char* type, const char* value, const ch
 
 const uint8_t getWiFiClientSsidNameMaxLength() { return WIFI_SSID_MAX_LENGTH - 1;}
 const uint8_t getWiFiClientSsidPasswordMaxLength() { return WIFI_PASSWORD_MAX_LENGTH - 1;}
+const uint8_t getRaidAlarmServerApiKeyMaxLength() { return RAID_ALARM_SERVER_API_KEY_LENGTH - 1;}
 
 const char* HTML_PAGE_ROOT_ENDPOINT = "/";
 const char* HTML_PAGE_REBOOT_ENDPOINT = "/reboot";
@@ -2477,10 +2533,13 @@ const char* HTML_PAGE_UPDATE_ENDPOINT = "/update";
 const char* HTML_PAGE_WIFI_SSID_NAME = "ssid";
 const char* HTML_PAGE_WIFI_PWD_NAME = "pwd";
 const char* HTML_PAGE_RAID_SERVER_NAME = "srv";
-const char* HTML_PAGE_RAID_SERVER_UA_NAME = "srvua";
 const char* HTML_PAGE_RAID_SERVER_VK_NAME = "srvvk";
+const char* HTML_PAGE_RAID_SERVER_UA_NAME = "srvua";
+const char* HTML_PAGE_RAID_SERVER_UA_KEY_NAME = "srvuakey";
 const char* HTML_PAGE_RAID_SERVER_AC_NAME = "srvac";
+const char* HTML_PAGE_RAID_SERVER_AC_KEY_NAME = "srvackey";
 const char* HTML_PAGE_RAID_SERVER_AI_NAME = "srvai";
+const char* HTML_PAGE_RAID_SERVER_AI_KEY_NAME = "srvaikey";
 const char* HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME = "raidled";
 const char* HTML_PAGE_SHOW_STRIP_STATUS_NAME = "statled";
 const char* HTML_PAGE_BRIGHTNESS_NAME = "brt";
@@ -2493,7 +2552,8 @@ const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 
 void handleWebServerGet() {
   String content = getHtmlPage(
-String( F("<form method=\"POST\">"
+String( F("<script>function ex(el){Array.from(el.parentElement.parentElement.children).forEach(ch=>{if(ch.classList.contains(\"ex\"))ch.classList.toggle(\"exon\");});}</script>"
+  "<form method=\"POST\">"
   "<div class=\"fx\">"
     "<h2>Connect to WiFi:</h2>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("SSID Name"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, getWiFiClientSsidNameMaxLength(), true, false ) + String( F("</div>"
@@ -2501,10 +2561,21 @@ String( F("<form method=\"POST\">"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Data Source:</h2>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) + String( F("</div>"
+    "<div class=\"fi fv pl\">"
+      "<div class=\"fi ex\">") ) + getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) + String( F("</div>"
+    "</div>"
+    "<div class=\"fi fv pl\">"
+      "<div class=\"fi ex\">") ) + getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Key"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_UA_KEY_NAME, HTML_PAGE_RAID_SERVER_UA_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
+    "</div>"
+    "<div class=\"fi fv pl\">"
+      "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Key"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
+    "</div>"
+    "<div class=\"fi fv pl\">"
+      "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Key"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AI_KEY_NAME, HTML_PAGE_RAID_SERVER_AI_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
+    "</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Colors:</h2>"
@@ -2616,6 +2687,10 @@ void handleWebServerPost() {
     raidAlarmServerReceivedPopulated = true;
   }
 
+  String htmlPageUaRaidAlarmServerApiKeyReceived = wifiWebServer.arg( HTML_PAGE_RAID_SERVER_UA_KEY_NAME );
+  String htmlPageAcRaidAlarmServerApiKeyReceived = wifiWebServer.arg( HTML_PAGE_RAID_SERVER_AC_KEY_NAME );
+  String htmlPageAiRaidAlarmServerApiKeyReceived = wifiWebServer.arg( HTML_PAGE_RAID_SERVER_AI_KEY_NAME );
+
   String htmlPageAlarmOnColorReceived = wifiWebServer.arg( HTML_PAGE_ALARM_ON_NAME );
   uint32_t alarmOnColorReceived = getUint32Color( htmlPageAlarmOnColorReceived );
 
@@ -2685,6 +2760,33 @@ void handleWebServerPost() {
 
   bool isStripRerenderRequired = false;
   bool isStripStatusRerenderRequired = false;
+  bool isReconnectRequired = false;
+
+  char raidAlarmServerApiKeyReceived[RAID_ALARM_SERVER_API_KEY_LENGTH];
+  if( htmlPageUaRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ) ) {
+    Serial.println( F("UA server api key updated") );
+    strcpy( raidAlarmServerApiKeyReceived, htmlPageUaRaidAlarmServerApiKeyReceived.c_str() );
+    writeEepromCharArray( eepromUaRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    if( raidAlarmServerReceived == UA_RAID_ALARM_SERVER ) {
+      isReconnectRequired = true;
+    }
+  }
+  if( htmlPageAcRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ) ) {
+    Serial.println( F("AC server api key updated") );
+    strcpy( raidAlarmServerApiKeyReceived, htmlPageAcRaidAlarmServerApiKeyReceived.c_str() );
+    writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    if( raidAlarmServerReceived == AC_RAID_ALARM_SERVER ) {
+      isReconnectRequired = true;
+    }
+  }
+  if( htmlPageAiRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ) ) {
+    Serial.println( F("AI server api key updated") );
+    strcpy( raidAlarmServerApiKeyReceived, htmlPageAiRaidAlarmServerApiKeyReceived.c_str() );
+    writeEepromCharArray( eepromAiRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    if( raidAlarmServerReceived == AI_RAID_ALARM_SERVER ) {
+      isReconnectRequired = true;
+    }
+  }
 
   if( alarmOnColorReceived != raidAlarmStatusColorActive ) {
     raidAlarmStatusColorActive = alarmOnColorReceived;
@@ -2757,10 +2859,15 @@ void handleWebServerPost() {
     writeEepromIntValue( eepromRaidAlarmServerIndex, raidAlarmServerReceived );
     Serial.println( F("Switching to new data source...") );
     currentRaidAlarmServer = raidAlarmServerReceived;
+    isReconnectRequired = true;
+    isStripRerenderRequired = true;
+  }
+
+  if( isReconnectRequired ) {
     if( currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) { //if this not reset and UA source was used before, then the data update won't happen, since the code will think that we already have up-do-date values
       uaResetLastActionHash();
     }
-    isStripRerenderRequired = true;
+    readRaidAlarmServerApiKey( -1 );
     initVariables();
   }
 
@@ -2860,6 +2967,11 @@ void configureWebServer() {
 }
 
 
+WiFiEventHandler wiFiEventHandler;
+void onWiFiConnected( const WiFiEventStationModeConnected&event ) {
+  forceNtpUpdate = true;
+}
+
 //setup and main loop
 void setup() {
   Serial.begin( 115200 );
@@ -2872,14 +2984,15 @@ void setup() {
   initStrip();
   initVariables();
   configureWebServer();
+  wiFiEventHandler = WiFi.onStationModeConnected( &onWiFiConnected );
   connectToWiFi( true, true );
   startWebServer();
   initTimeClient();
-  updateTimeClient( true );
+  //updateTimeClient( true );
 }
 
 void loop() {
-  if( isFirstLoopRun || ( ( millis() - previousMillisInternalLed ) >= ( getInternalLedStatus() == HIGH ? DELAY_INTERNAL_LED_ANIMATION_HIGH : DELAY_INTERNAL_LED_ANIMATION_LOW ) ) ) {
+  if( isFirstLoopRun || ( calculateDiffMillis( previousMillisInternalLed, millis() ) >= ( getInternalLedStatus() == HIGH ? DELAY_INTERNAL_LED_ANIMATION_HIGH : DELAY_INTERNAL_LED_ANIMATION_LOW ) ) ) {
     previousMillisInternalLed = millis();
     setInternalLedStatus( getInternalLedStatus() == HIGH ? LOW : HIGH );
   }
@@ -2889,15 +3002,17 @@ void loop() {
   }
   wifiWebServer.handleClient();
 
-  if( isApInitialized && ( ( millis() - apStartedMillis ) >= TIMEOUT_AP ) ) {
+  if( isApInitialized && ( calculateDiffMillis( apStartedMillis, millis() ) >= TIMEOUT_AP ) ) {
     shutdownAccessPoint();
     connectToWiFi( true, false );
   }
 
-  if( ( isFirstLoopRun || forceNtpUpdate || forceNightModeUpdate || ( ( millis() - previousMillisNightModeCheck ) >= DELAY_NIGHT_MODE_CHECK ) ) ) {
+  if( isFirstLoopRun || forceNtpUpdate || forceNightModeUpdate || ( calculateDiffMillis( previousMillisNightModeCheck, millis() ) >= DELAY_NIGHT_MODE_CHECK ) || timeClientTimeInitStatus != timeClient.isTimeSet() ) {
+    timeClientTimeInitStatus = timeClient.isTimeSet();
     if( forceNtpUpdate || !forceNightModeUpdate ) {
-      forceNtpUpdate = false;
-      updateTimeClient( false );
+      if( updateTimeClient( false ) ) {
+        forceNtpUpdate = false;
+      }
     }
     if( processTimeOfDay() ) {
       forceNightModeUpdate = false;
@@ -2907,7 +3022,7 @@ void loop() {
 
   switch( currentRaidAlarmServer ) {
     case VK_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+      if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
         forceRaidAlarmUpdate = false;
         if( WiFi.isConnected() ) {
           vkRetrieveAndProcessServerData();
@@ -2918,7 +3033,7 @@ void loop() {
       }
       break;
     case UA_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+      if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
         forceRaidAlarmUpdate = false;
         if( WiFi.isConnected() ) {
           uaRetrieveAndProcessServerData();
@@ -2930,7 +3045,7 @@ void loop() {
       break;
     case AC_RAID_ALARM_SERVER:
       acRetrieveAndProcessServerData();
-      if( isFirstLoopRun || forceRaidAlarmUpdate || ( ( millis() - previousMillisRaidAlarmCheck ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
+      if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
         if( !WiFi.isConnected() ) {
           resetAlarmStatusAndConnectToWiFi();
         }
@@ -2938,7 +3053,7 @@ void loop() {
       }
       break;
     case AI_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmUpdate || ( millis() - previousMillisRaidAlarmCheck >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+      if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
         forceRaidAlarmUpdate = false;
         if( WiFi.isConnected() ) {
           aiRetrieveAndProcessServerData();
@@ -2952,7 +3067,7 @@ void loop() {
       break;
   }
 
-  if( isFirstLoopRun || ( ( millis() - previousMillisLedAnimation ) >= DELAY_STRIP_ANIMATION ) ) {
+  if( isFirstLoopRun || ( calculateDiffMillis( previousMillisLedAnimation, millis() ) >= DELAY_DISPLAY_ANIMATION ) ) {
     previousMillisLedAnimation = millis();
     setStripStatus();
     renderStrip();
