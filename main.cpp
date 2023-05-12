@@ -52,7 +52,7 @@ const uint8_t STRIP_PIN = 0;
 #else //ESP32 or ESP32S2
 const uint8_t STRIP_PIN = 18;
 #endif
-const uint16_t DELAY_DISPLAY_ANIMATION = 500; //led animation speed, in ms
+const uint16_t DELAY_STRIP_ANIMATION = 500; //led animation speed, in ms
 
 //addressable led strip status led colors confg
 const uint8_t STRIP_STATUS_BLACK = 0;
@@ -782,7 +782,7 @@ void renderStrip() {
     strip.setPixelColor( alarmStatusLedIndex, alarmStatusLedColorToRender );
   }
   if( stripPartyMode ) {
-    uint16_t stripPartyModeHueChange = ( 360 * DELAY_DISPLAY_ANIMATION / 60000 ) % 360;
+    uint16_t stripPartyModeHueChange = ( 360 * DELAY_STRIP_ANIMATION / 60000 ) % 360;
     if( stripPartyModeHueChange == 0 ) stripPartyModeHueChange = 1;
     stripPartyModeHue = stripPartyModeHue + stripPartyModeHueChange;
   }
@@ -3067,7 +3067,7 @@ void loop() {
       break;
   }
 
-  if( isFirstLoopRun || ( calculateDiffMillis( previousMillisLedAnimation, millis() ) >= DELAY_DISPLAY_ANIMATION ) ) {
+  if( isFirstLoopRun || ( calculateDiffMillis( previousMillisLedAnimation, millis() ) >= DELAY_STRIP_ANIMATION ) ) {
     previousMillisLedAnimation = millis();
     setStripStatus();
     renderStrip();
