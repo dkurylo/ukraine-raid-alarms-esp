@@ -175,6 +175,11 @@ const std::vector<std::vector<const char*>> getUaRegions() {
   return result;
 }
 
+uint64_t uaLastActionHash = 0; //keeps track of whether anything has changed on a map before actually performing query for alarms data
+void uaResetLastActionHash() {
+  uaLastActionHash = 0;
+}
+
 //"tcp.alerts.com.ua" - uses TCP connection and receives alarm updates instantly from server. When choosing AC_RAID_ALARM_SERVER, config variables start with AC_
 //API URL: https://alerts.com.ua
 //+ No need to parse JSON, very fast retrieval and processing speed
@@ -360,6 +365,7 @@ void initAlarmStatus() {
     }
     transitionAnimations.push_back( std::vector<uint32_t>() );
   }
+  uaResetLastActionHash();
 }
 
 void initVariables() {
@@ -1603,11 +1609,6 @@ void vkRetrieveAndProcessServerData() {
 }
 
 //functions for UA server
-uint64_t uaLastActionHash = 0;
-void uaResetLastActionHash() {
-  uaLastActionHash = 0;
-}
-
 bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
   bool isDataChanged = false;
 
