@@ -289,10 +289,10 @@ char raidAlarmServerApiKey[RAID_ALARM_SERVER_API_KEY_LENGTH];
 
 bool showOnlyActiveAlarms = false;
 bool showStripIdleStatusLed = false;
-uint8_t stripLedBrightness = 63; //out of 255
+uint8_t stripLedBrightness = 23; //out of 255
 uint8_t statusLedColor = STRIP_STATUS_OK;
 
-uint8_t stripLedBrightnessDimmingNight = 255;
+uint8_t stripLedBrightnessDimmingNight = 39;
 bool isNightMode = false;
 bool isUserAwake = true;
 bool isNightModeTest = false;
@@ -303,10 +303,10 @@ const int8_t RAID_ALARM_STATUS_UNINITIALIZED = -1;
 const int8_t RAID_ALARM_STATUS_INACTIVE = 0;
 const int8_t RAID_ALARM_STATUS_ACTIVE = 1;
 
-uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(91, 15, 0);
-uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(127, 127, 0);
-uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(15, 63, 0);
-uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(179, 179, 0);
+uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(127, 15, 0);
+uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(179, 179, 0);
+uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(31, 127, 0);
+uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(255, 255, 0);
 
 std::map<const char*, int8_t> regionToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
 std::vector<std::vector<uint32_t>> transitionAnimations; //populated automatically
