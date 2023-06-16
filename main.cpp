@@ -25,6 +25,8 @@
 #include <EEPROM.h>
 #include <Adafruit_NeoPixel.h>
 
+#include <URA_Map.h>
+
 bool isNewBoard = false;
 const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
 
@@ -814,7 +816,7 @@ bool setStripStatus() {
     ledColor = Adafruit_NeoPixel::Color(0, 9, 9);
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_SERVER_DNS_PROCESSING ) {
-    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode && !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 2);
+    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 2);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_SERVER_DNS_ERROR ) {
     ledColor = Adafruit_NeoPixel::Color(0, 15, 0);
@@ -829,13 +831,13 @@ bool setStripStatus() {
     ledColor = Adafruit_NeoPixel::Color(15, 0, 0);
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING ) {
-    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode && !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 1) : Adafruit_NeoPixel::Color(0, 0, 2);
+    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 2);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_BLACK || ( !showStripIdleStatusLed && statusLedColor == STRIP_STATUS_OK ) ) {
     ledColor = Adafruit_NeoPixel::Color(0, 0, 0);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_OK ) {
-    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode && !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(1, 1, 1);
+    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(1, 1, 1);
     dimLedAtNight = false;
   }
 
@@ -2468,6 +2470,34 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".i{color:#CCC;margin-left:0.2em;border:1px solid #777;border-radius:50%;background-color:#666;cursor:default;font-size:65%;vertical-align:top;width:1em;height:1em;display:inline-block;text-align:center;}"
       ".i:before{content:\"i\";position:relative;top:-0.07em;}"
       ".i:hover{background-color:#777;color:#DDD;}"
+      ".map{position:relative;margin-top:1em;}"
+      ".map img{width:100%;display:block;}"
+      ".map .ct{width:11px;height:11px;border-radius:50%;transform:translate(-50%,-50%);position:absolute;background:gray;}"
+      ".map .ct.ct0{top:44.2%;left:3.0%;}"
+      ".map .ct.ct1{top:29.5%;left:11.5%;}"
+      ".map .ct.ct2{top:17.5%;left:18.2%;}"
+      ".map .ct.ct3{top:21.4%;left:24.7%;}"
+      ".map .ct.ct4{top:35.4%;left:27.2%;}"
+      ".map .ct.ct5{top:33.4%;left:20.0%;}"
+      ".map .ct.ct6{top:40.8%;left:14.5%;}"
+      ".map .ct.ct7{top:52.5%;left:21.2%;}"
+      ".map .ct.ct8{top:41.2%;left:36.0%;}"
+      ".map .ct.ct9{top:26.8%;left:37.2%;}"
+      ".map .ct.ct10{top:24.5%;left:46.9%;}"
+      ".map .ct.ct11{top:11.1%;left:51.4%;}"
+      ".map .ct.ct12{top:17.9%;left:68.5%;}"
+      ".map .ct.ct13{top:28.0%;left:76.4%;}"
+      ".map .ct.ct14{top:39.7%;left:94.9%;}"
+      ".map .ct.ct15{top:49.8%;left:87.4%;}"
+      ".map .ct.ct16{top:56.9%;left:74.2%;}"
+      ".map .ct.ct17{top:48.4%;left:70.5%;}"
+      ".map .ct.ct18{top:32.8%;left:67.2%;}"
+      ".map .ct.ct19{top:37.6%;left:54.3%;}"
+      ".map .ct.ct20{top:50.0%;left:56.4%;}"
+      ".map .ct.ct21{top:67.0%;left:55.2%;}"
+      ".map .ct.ct22{top:72.6%;left:47.2%;}"
+      ".map .ct.ct23{top:92.0%;left:69.5%;}"
+      ".map .ct.ct24{top:72.1%;left:60.5%;}"
       "@media(max-device-width:800px) and (orientation:portrait){:root{--f:4vw;}.wrp{width:94%;max-width:100%;}}"
     "</style>"
   "</head>"
@@ -2533,6 +2563,8 @@ const char* HTML_PAGE_REBOOT_ENDPOINT = "/reboot";
 const char* HTML_PAGE_TESTLED_ENDPOINT = "/testled";
 const char* HTML_PAGE_TEST_NIGHT_ENDPOINT = "/testdim";
 const char* HTML_PAGE_UPDATE_ENDPOINT = "/update";
+const char* HTML_PAGE_MAP_IMAGE_ENDPOINT = "/map.gif";
+const char* HTML_PAGE_MAP_DATA_ENDPOINT = "/map.json";
 
 const char* HTML_PAGE_WIFI_SSID_NAME = "ssid";
 const char* HTML_PAGE_WIFI_PWD_NAME = "pwd";
@@ -2556,7 +2588,37 @@ const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 
 void handleWebServerGet() {
   String content = getHtmlPage(
-String( F("<script>function ex(el){Array.from(el.parentElement.parentElement.children).forEach(ch=>{if(ch.classList.contains(\"ex\"))ch.classList.toggle(\"exon\");});}</script>"
+    ( isApInitialized ? "" : ( String( F("<script>"
+    "function md(){"
+      "let xh=new XMLHttpRequest();"
+      "xh.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_DATA_ENDPOINT ) + String( F("\",false);"
+      "xh.send(null);"
+      "let pr=document.querySelector('.map');"
+      "Object.entries(JSON.parse(xh.responseText)).forEach(([key,value])=>{"
+        "let ct=pr.querySelector('.ct.ct'+key);"
+        "if(!ct){"
+          "ct=document.createElement('div');"
+          "pr.appendChild(ct);"
+        "}"
+        "ct.className='ct ct'+key;"
+        "ct.style.background=value;"
+      "});"
+    "}"
+    "document.addEventListener(\"DOMContentLoaded\",()=>{"
+      "md();"
+      "setInterval(()=>{"
+        "md();"
+      "},5000);"
+    "});"
+  "</script>"
+  "<div class=\"map\"><img src=\"") ) + String( HTML_PAGE_MAP_IMAGE_ENDPOINT ) + String( F("\"></div>") ) ) ) +
+  String( F("<script>"
+    "function ex(el){"
+      "Array.from(el.parentElement.parentElement.children).forEach(ch=>{"
+        "if(ch.classList.contains(\"ex\"))ch.classList.toggle(\"exon\");"
+      "});"
+    "}"
+  "</script>"
   "<form method=\"POST\">"
   "<div class=\"fx\">"
     "<h2>Connect to WiFi:</h2>"
@@ -2621,8 +2683,14 @@ const char HTML_PAGE_FILLUP_MID[] PROGMEM = "s linear forwards;}"
   "@keyframes fill{0%{width:0;}100%{width:100%;}}"
 "</style>"
 "<div id=\"fill\"><div></div></div>"  
-"<script>document.addEventListener(\"DOMContentLoaded\",()=>{setTimeout(()=>{window.location.href=\"/\";},";
-const char HTML_PAGE_FILLUP_END[] PROGMEM = "000);});</script>";
+"<script>"
+  "document.addEventListener(\"DOMContentLoaded\",()=>{"
+    "setTimeout(()=>{"
+      "window.location.href=\"/\";"
+    "},";
+const char HTML_PAGE_FILLUP_END[] PROGMEM = "000);"
+  "});"
+"</script>";
 
 String getHtmlPageFillup( String animationLength, String redirectLength ) {
   String result;
@@ -2943,6 +3011,35 @@ void handleWebServerRedirect() {
   wifiWebServer.client().stop();
 }
 
+void handleWebServerGetMapImage() {
+  wifiWebServer.send_P( 200, String( F("image/gif") ).c_str(), (const char*)MAP_GIF, sizeof( MAP_GIF ) );
+}
+
+void handleWebServerGetMapData() {
+  const std::vector<std::vector<const char*>>& allRegions = getRegions();
+  String content = "{";
+  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
+    uint32_t alarmStatusLedColorToRender = RAID_ALARM_STATUS_COLOR_UNKNOWN;
+    int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
+    for( const auto& region : allRegions[ledIndex] ) {
+      int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
+      if( regionLedAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
+      if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
+      alarmStatus = regionLedAlarmStatus;
+    }
+    if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
+      alarmStatusLedColorToRender = showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive;
+    } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
+      alarmStatusLedColorToRender = raidAlarmStatusColorActive;
+    } else {
+      alarmStatusLedColorToRender = RAID_ALARM_STATUS_COLOR_UNKNOWN;
+    }
+    content += String( ledIndex != 0 ? "," : "" ) + "\"" + String( ledIndex ) + "\":\"" + getHexColor( alarmStatusLedColorToRender ) + "\"";
+  }
+  content += "}";
+  wifiWebServer.send( 200, F("application/json"), content );
+}
+
 bool isWebServerInitialized = false;
 void stopWebServer() {
   if( !isWebServerInitialized ) return;
@@ -2964,6 +3061,8 @@ void configureWebServer() {
   wifiWebServer.on( HTML_PAGE_TEST_NIGHT_ENDPOINT, HTTP_GET, handleWebServerGetTestNight );
   wifiWebServer.on( HTML_PAGE_TESTLED_ENDPOINT, HTTP_GET, handleWebServerGetTestLeds );
   wifiWebServer.on( HTML_PAGE_REBOOT_ENDPOINT, HTTP_GET, handleWebServerGetReboot );
+  wifiWebServer.on( HTML_PAGE_MAP_IMAGE_ENDPOINT, HTTP_GET, handleWebServerGetMapImage );
+  wifiWebServer.on( HTML_PAGE_MAP_DATA_ENDPOINT, HTTP_GET, handleWebServerGetMapData );
   wifiWebServer.onNotFound([]() {
     handleWebServerRedirect();
   });
