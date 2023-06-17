@@ -2560,24 +2560,20 @@ const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 void handleWebServerGet() {
   String content = getHtmlPage(
     ( isApInitialized ? "" : ( String( F("<script>"
-    "function loadMap(){"
+    "document.addEventListener(\"DOMContentLoaded\",()=>{"
       "let xhr=new XMLHttpRequest();"
-      "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?s=0\",true);"
+      "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?id=map\",true);"
       "xhr.onload=(e)=>{"
-        "if(xhr.readyState===4 && xhr.status===200){"
-          "document.querySelector('.map-wrp').innerHTML=xhr.responseText;"
+        "if(xhr.readyState===4&&xhr.status===200){"
+          "let scriptEl=document.createElement('script');"
+          "scriptEl.textContent=xhr.responseText;"
+          "document.querySelector('#map').appendChild(scriptEl);"
         "}"
       "};"
       "xhr.send(null);"
-    "}"
-    "document.addEventListener(\"DOMContentLoaded\",()=>{"
-      "loadMap();"
-      "setInterval(()=>{"
-        "loadMap();"
-      "},5000);"
     "});"
   "</script>"
-  "<div class=\"map-wrp\"></div>") ) ) ) +
+  "<div id=\"map\"></div>") ) ) ) +
   String( F("<script>"
     "function ex(el){"
       "Array.from(el.parentElement.parentElement.children).forEach(ch=>{"
@@ -2990,50 +2986,89 @@ void handleWebServerGetMap() {
     return;
   }
 
-  bool loadStyles = wifiWebServer.arg("c") != "0";
-  bool loadScripts = wifiWebServer.arg("s") != "0";
-  const std::vector<std::vector<const char*>>& allRegions = getRegions();
-  String content = "";
-  if( loadStyles ) {
-    content += String( F("<style>"
-      "body{background-color:#444;}"
-      ".map{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((408/600)*min(100%,600px));}"
-      ".map>img{position:absolute;display:block;width:100%;max-width:600px;top:0;}"
-    "</style>"
-    "<div class=\"map\" style=\"\">") );
-  }
-  content += String( F("<img style=\"z-index:1;\" src=\"/map?f=map.gif\">") );
-  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
-    for( const auto& region : allRegions[ledIndex] ) {
-      int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
-      if( regionLedAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
-      if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
-      alarmStatus = regionLedAlarmStatus;
+  String dataSet = wifiWebServer.arg("d");
+  if( dataSet != "" ) {
+    String content = "{";
+    const std::vector<std::vector<const char*>>& allRegions = getRegions();
+    for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
+      int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
+      for( const auto& region : allRegions[ledIndex] ) {
+        int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
+        if( regionLedAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
+        if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
+        alarmStatus = regionLedAlarmStatus;
+      }
+      content += String( ledIndex != 0 ? "," : "" ) + "\"" + String( ledIndex ) + "\":" + String( alarmStatus == RAID_ALARM_STATUS_INACTIVE ? ( showOnlyActiveAlarms ? "-1" : "0" ) : ( alarmStatus == RAID_ALARM_STATUS_ACTIVE ? "1" : "-1" ) );
     }
-    content += String( F("<img src=\"/map?f=map_") ) + String( ledIndex ) + String( alarmStatus == RAID_ALARM_STATUS_INACTIVE ? ( showOnlyActiveAlarms ? "" : "_0" ) : ( alarmStatus == RAID_ALARM_STATUS_ACTIVE ? "_1" : "" ) ) + String( F(".gif\">") );
+    content += "}";
+    wifiWebServer.send( 200, F("application/json"), content );
+    return;
   }
-  if( loadScripts ) {
-    content += String( F("</div>"
-    "<script>"
-      "setInterval(()=>{"
-        "let xhr=new XMLHttpRequest();"
-        "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?c=0&s=0\",true);"
-        "xhr.onload=(e)=>{"
-          "if(xhr.readyState===4 && xhr.status===200){"
-            "document.querySelector('.map').innerHTML=xhr.responseText;"
+
+  String anchorElementId = wifiWebServer.arg("id");
+  String mapId = anchorElementId == "" ? "map" : anchorElementId;
+  String content = String( anchorElementId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
+  String( F("let mapId='") ) + mapId + String( F("';"
+  "function initMap(){"
+    "let ae=document.querySelector('#'+mapId);"
+    "if(!ae)return;"
+    "let aes=document.createElement('style');"
+    "aes.textContent='"
+      "#") ) + mapId + String( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((408/600)*min(100%,600px));}"
+      "#") ) + mapId + String( F(">img.map{z-index:1;}"
+      "#") ) + mapId + String( F(">img{position:absolute;display:block;width:100%;max-width:600px;top:0;}"
+    "';"
+    "ae.appendChild(aes);"
+    "let map=ae.querySelector('.map');"
+    "if(!map){"
+      "map=document.createElement('img');"
+      "map.classList.add('map');"
+      "map.setAttribute('src','") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f=map.gif');"
+      "ae.appendChild(map);"
+    "}"
+    "setInterval(()=>{"
+      "updateMap();"
+    "},5000);"
+    "updateMap();"
+  "}"
+  "function updateMap(){"
+    "let xhr=new XMLHttpRequest();"
+    "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?d=1\",true);"
+    "xhr.onload=(e)=>{"
+      "if(xhr.readyState===4&&xhr.status===200){"
+        "let data=JSON.parse(xhr.responseText);"
+        "Object.entries(data).forEach(([region,status])=>{"
+          "let ae=document.querySelector('#'+mapId);"
+          "if(!ae)return;"
+          "let mapc='map'+region;"
+          "let mapl='") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f='+'map_'+region+(status==1?'_1':status==0?'_0':'')+'.gif';"
+          "let map=ae.querySelector('img.'+mapc);"
+          "if(!map){"
+            "map=document.createElement('img');"
+            "map.classList.add(mapc);"
+            "map.setAttribute('src',mapl);"
+            "ae.appendChild(map);"
+          "}else{"
+            "if(map.src!=mapl)map.src=mapl;"
           "}"
-        "};"
-        "xhr.send(null);"
-      "},5000);"
-    "</script>") );
+        "});"
+      "}"
+    "};"
+    "xhr.send(null);"
+  "}"
+  "initMap();") ) +
+  String( anchorElementId == "" ? String( F("</script></div>") ) : "" );
+
+  if( anchorElementId == "" ) {
+    content = getHtmlPage( content );
+    wifiWebServer.send( 200, F("text/html"), content );
+  } else {
+    wifiWebServer.send( 200, F("text/javascript"), content );
   }
-  
-  wifiWebServer.send( 200, F("text/html"), content );
 }
 
 void handleWebServerGetFavIcon() {
-  File file = LittleFS.open( "/favicon.ico", "r" );
+  File file = LittleFS.open( F("/favicon.ico"), "r" );
   if( !file ) {
     wifiWebServer.send( 404, F("text/plain"), F("File not found") );
   } else {
