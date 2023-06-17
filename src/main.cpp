@@ -2535,8 +2535,7 @@ const char* HTML_PAGE_TESTLED_ENDPOINT = "/testled";
 const char* HTML_PAGE_TEST_NIGHT_ENDPOINT = "/testdim";
 const char* HTML_PAGE_UPDATE_ENDPOINT = "/update";
 const char* HTML_PAGE_MAP_ENDPOINT = "/map";
-//const char* HTML_PAGE_MAP_IMAGE_ENDPOINT = "/map.gif";
-//const char* HTML_PAGE_MAP_DATA_ENDPOINT = "/map.json";
+const char* HTML_PAGE_FAVICON_ENDPOINT = "/favicon.ico";
 
 const char* HTML_PAGE_WIFI_SSID_NAME = "ssid";
 const char* HTML_PAGE_WIFI_PWD_NAME = "pwd";
@@ -2998,12 +2997,12 @@ void handleWebServerGetMap() {
   if( loadStyles ) {
     content += String( F("<style>"
       "body{background-color:#444;}"
-      ".map{position:relative;display:flex;justify-content:center;margin-top:1em;}"
+      ".map{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((408/600)*min(100%,600px));}"
       ".map>img{position:absolute;display:block;width:100%;max-width:600px;top:0;}"
     "</style>"
     "<div class=\"map\" style=\"\">") );
   }
-  content += String( F("<img style=\"position:relative;z-index:1;\" src=\"/map?f=map.gif\">") );
+  content += String( F("<img style=\"z-index:1;\" src=\"/map?f=map.gif\">") );
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
     int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
     for( const auto& region : allRegions[ledIndex] ) {
@@ -3033,6 +3032,17 @@ void handleWebServerGetMap() {
   wifiWebServer.send( 200, F("text/html"), content );
 }
 
+void handleWebServerGetFavIcon() {
+  File file = LittleFS.open( "/favicon.ico", "r" );
+  if( !file ) {
+    wifiWebServer.send( 404, F("text/plain"), F("File not found") );
+  } else {
+    wifiWebServer.streamFile( file, F("image/x-icon") );
+    file.close();
+  }
+  return;
+}
+
 bool isWebServerInitialized = false;
 void stopWebServer() {
   if( !isWebServerInitialized ) return;
@@ -3055,6 +3065,7 @@ void configureWebServer() {
   wifiWebServer.on( HTML_PAGE_TESTLED_ENDPOINT, HTTP_GET, handleWebServerGetTestLeds );
   wifiWebServer.on( HTML_PAGE_REBOOT_ENDPOINT, HTTP_GET, handleWebServerGetReboot );
   wifiWebServer.on( HTML_PAGE_MAP_ENDPOINT, HTTP_GET, handleWebServerGetMap );
+  wifiWebServer.on( HTML_PAGE_FAVICON_ENDPOINT, HTTP_GET, handleWebServerGetFavIcon );
   wifiWebServer.onNotFound([]() {
     handleWebServerRedirect();
   });
