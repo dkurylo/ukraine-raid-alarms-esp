@@ -3005,18 +3005,18 @@ void handleWebServerGetMap() {
     return;
   }
 
-  String anchorElementId = wifiWebServer.arg("id");
-  String mapId = anchorElementId == "" ? "map" : anchorElementId;
-  String content = String( anchorElementId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
-  String( F("let mapId='") ) + mapId + String( F("';"
-  "function initMap(){"
-    "let ae=document.querySelector('#'+mapId);"
+  String anchorId = wifiWebServer.arg("id");
+  String mapId = anchorId == "" ? "map" : anchorId;
+  String content = String( anchorId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
+  String( F("function initMap(){"
+    "let ae=document.querySelector('#") ) + mapId + String( F("');"
     "if(!ae)return;"
     "let aes=document.createElement('style');"
-    "aes.textContent='"
-      "#") ) + mapId + String( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((408/600)*min(100%,600px));}"
+    "aes.textContent='") ) +
+      String( anchorId == "" ? String( F( ".wrp{width:96%;max-width:min(120vh,1000px);}" ) ) : "" ) +
+      String( F("#") ) + mapId + String( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((408/600)*100%);}"
       "#") ) + mapId + String( F(">img.map{z-index:1;}"
-      "#") ) + mapId + String( F(">img{position:absolute;display:block;width:100%;max-width:600px;top:0;}"
+      "#") ) + mapId + String( F(">img{position:absolute;display:block;width:100%;top:0;}"
     "';"
     "ae.appendChild(aes);"
     "let map=ae.querySelector('.map');"
@@ -3038,7 +3038,7 @@ void handleWebServerGetMap() {
       "if(xhr.readyState===4&&xhr.status===200){"
         "let data=JSON.parse(xhr.responseText);"
         "Object.entries(data).forEach(([region,status])=>{"
-          "let ae=document.querySelector('#'+mapId);"
+          "let ae=document.querySelector('#") ) + mapId + String( F("');"
           "if(!ae)return;"
           "let mapc='map'+region;"
           "let mapl='") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f='+'map_'+region+(status==1?'_1':status==0?'_0':'')+'.gif';"
@@ -3057,9 +3057,9 @@ void handleWebServerGetMap() {
     "xhr.send(null);"
   "}"
   "initMap();") ) +
-  String( anchorElementId == "" ? String( F("</script></div>") ) : "" );
+  String( anchorId == "" ? String( F("</script></div>") ) : "" );
 
-  if( anchorElementId == "" ) {
+  if( anchorId == "" ) {
     content = getHtmlPage( content );
     wifiWebServer.send( 200, F("text/html"), content );
   } else {
