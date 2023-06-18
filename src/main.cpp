@@ -490,6 +490,45 @@ uint8_t max( uint8_t a, uint8_t b, uint8_t c ) {
   return max_value;
 }
 
+String getContentType( String fileExtension ) {
+  String contentType = "";
+  if( fileExtension == F("htm") || fileExtension == F("html") ) {
+    contentType = F("text/html");
+  } else if( fileExtension == F("gif") ) {
+    contentType = F("image/gif");
+  } else if( fileExtension == F("png") ) {
+    contentType = F("image/png");
+  } else if( fileExtension == F("webp") ) {
+    contentType = F("image/webp");
+  } else if( fileExtension == F("bmp") ) {
+    contentType = F("image/bmp");
+  } else if( fileExtension == F("ico") ) {
+    contentType = F("image/x-icon");
+  } else if( fileExtension == F("svg") ) {
+    contentType = F("image/svg+xml");
+  } else if( fileExtension == F("js") ) {
+    contentType = F("text/javascript");
+  } else if( fileExtension == F("css") ) {
+    contentType = F("text/css");
+  } else if( fileExtension == F("json") ) {
+    contentType = F("application/json");
+  } else if( fileExtension == F("xml") ) {
+    contentType = F("application/xml");
+  } else if( fileExtension == F("txt") ) {
+    contentType = F("text/plain");
+  } else if( fileExtension == F("pdf") ) {
+    contentType = F("application/pdf");
+  } else if( fileExtension == F("zip") ) {
+    contentType = F("application/zip");
+  } else if( fileExtension == F("mp3") ) {
+    contentType = F("audio/mp3");
+  } else if( fileExtension == F("mp4") ) {
+    contentType = F("video/mp4");
+  } else {
+    contentType = F("application/octet-stream");
+  }
+  return contentType;
+}
 
 
 //eeprom functionality
@@ -2469,7 +2508,10 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".i{color:#CCC;margin-left:0.2em;border:1px solid #777;border-radius:50%;background-color:#666;cursor:default;font-size:65%;vertical-align:top;width:1em;height:1em;display:inline-block;text-align:center;}"
       ".i:before{content:\"i\";position:relative;top:-0.07em;}"
       ".i:hover{background-color:#777;color:#DDD;}"
-      "@media(max-device-width:800px) and (orientation:portrait){:root{--f:4vw;}.wrp{width:94%;max-width:100%;}}"
+      "@media(max-device-width:800px) and (orientation:portrait){"
+        ":root{--f:4vw;}"
+        ".wrp{width:94%;max-width:100%;}"
+      "}"
     "</style>"
   "</head>"
   "<body>"
@@ -2636,7 +2678,7 @@ void handleWebServerGet() {
   "</span>"
 "</div>") ) );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-  wifiWebServer.send( 200, F("text/html"), content );
+  wifiWebServer.send( 200, getContentType( F("html") ), content );
 }
 
 const char HTML_PAGE_FILLUP_START[] PROGMEM = "<style>"
@@ -2682,25 +2724,25 @@ void handleWebServerPost() {
   if( htmlPageSsidNameReceived.length() == 0 ) {
     String content = getHtmlPage( String( F("<h2>Error: Missing SSID Name</h2>") ) );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-    wifiWebServer.send( 400, F("text/html"), content );
+    wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
   if( htmlPageSsidPasswordReceived.length() == 0 ) {
     String content = getHtmlPage( String( F("<h2>Error: Missing SSID Password</h2>") ) );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-    wifiWebServer.send( 400, F("text/html"), content );
+    wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
   if( htmlPageSsidNameReceived.length() > getWiFiClientSsidNameMaxLength() ) {
     String content = getHtmlPage( String( F("<h2>Error: SSID Name exceeds maximum length of ") ) + String( getWiFiClientSsidNameMaxLength() ) + String( F("</h2>") ) );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-    wifiWebServer.send( 400, F("text/html"), content );
+    wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
   if( htmlPageSsidPasswordReceived.length() > getWiFiClientSsidPasswordMaxLength() ) {
     String content = getHtmlPage( String( F("<h2>Error: SSID Password exceeds maximum length of ") ) + String( getWiFiClientSsidPasswordMaxLength() ) + String( F("</h2>") ) );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-    wifiWebServer.send( 400, F("text/html"), content );
+    wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
 
@@ -2790,7 +2832,7 @@ void handleWebServerPost() {
   String waitTime = isWiFiChanged ? String(TIMEOUT_CONNECT_WEB/1000 + 6) : ( isDataSourceChanged ? "4" : "2" );
   String content = getHtmlPage( getHtmlPageFillup( waitTime, waitTime ) + String( F("<h2>Save successful</h2>") ) );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-  wifiWebServer.send( 200, F("text/html"), content );
+  wifiWebServer.send( 200, getContentType( F("html") ), content );
 
   bool isStripRerenderRequired = false;
   bool isStripStatusRerenderRequired = false;
@@ -2926,7 +2968,7 @@ void handleWebServerPost() {
 void handleWebServerGetTestNight() {
   String content = getHtmlPage( getHtmlPageFillup( "6", "6" ) + String( F("<h2>Testing Night Mode...</h2>") ) );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-  wifiWebServer.send( 200, F("text/html"), content );
+  wifiWebServer.send( 200, getContentType( F("html") ), content );
     isNightModeTest = true;
     setStripStatus();
     renderStrip();
@@ -2939,7 +2981,7 @@ void handleWebServerGetTestNight() {
 void handleWebServerGetTestLeds() {
   String content = getHtmlPage( getHtmlPageFillup( String(STRIP_LED_COUNT), String( STRIP_LED_COUNT + 1 ) ) + String( F("<h2>Testing LEDs...</h2>") ) );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-  wifiWebServer.send( 200, F("text/html"), content );
+  wifiWebServer.send( 200, getContentType( F("html") ), content );
   for( uint8_t ledIndex = 0; ledIndex < STRIP_LED_COUNT; ledIndex++ ) {
     uint32_t oldColor = strip.getPixelColor( ledIndex );
     strip.setPixelColor( ledIndex, Adafruit_NeoPixel::Color(0, 0, 0) );
@@ -2962,14 +3004,14 @@ void handleWebServerGetTestLeds() {
 void handleWebServerGetReboot() {
   String content = getHtmlPage( getHtmlPageFillup( "9", "9" ) + String( F("<h2>Rebooting...</h2>") ) );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-  wifiWebServer.send( 200, F("text/html"), content );
+  wifiWebServer.send( 200, getContentType( F("html") ), content );
   delay( 200 );
   ESP.restart();
 }
 
 void handleWebServerRedirect() {
   wifiWebServer.sendHeader( F("Location"), String( F("http://") ) + WiFi.softAPIP().toString() );
-  wifiWebServer.send( 302, F("text/html"), "" );
+  wifiWebServer.send( 302, getContentType( F("html") ), "" );
   wifiWebServer.client().stop();
 }
 
@@ -2978,9 +3020,14 @@ void handleWebServerGetMap() {
   if( fileName != "" ) {
     File file = LittleFS.open( "/" + fileName, "r" );
     if( !file ) {
-      wifiWebServer.send( 404, F("text/plain"), F("File not found") );
+      wifiWebServer.send( 404, getContentType( F("txt") ), F("File not found") );
     } else {
-      wifiWebServer.streamFile( file, F("image/gif") );
+      String fileExtension = "";
+      int fileExtensionDot = fileName.lastIndexOf(".");
+      if( fileExtensionDot != -1 ) {
+          fileExtension = fileName.substring( fileExtensionDot + 1 );
+      }
+      wifiWebServer.streamFile( file, getContentType( fileExtension ) );
       file.close();
     }
     return;
@@ -3001,7 +3048,7 @@ void handleWebServerGetMap() {
       content += String( ledIndex != 0 ? "," : "" ) + "\"" + String( ledIndex ) + "\":" + String( alarmStatus == RAID_ALARM_STATUS_INACTIVE ? ( showOnlyActiveAlarms ? "-1" : "0" ) : ( alarmStatus == RAID_ALARM_STATUS_ACTIVE ? "1" : "-1" ) );
     }
     content += "}";
-    wifiWebServer.send( 200, F("application/json"), content );
+    wifiWebServer.send( 200, getContentType( F("json") ), content );
     return;
   }
 
@@ -3013,17 +3060,79 @@ void handleWebServerGetMap() {
     "if(!ae)return;"
     "let aes=document.createElement('style');"
     "aes.textContent='") ) +
-      String( anchorId == "" ? String( F( ".wrp{width:96%;max-width:min(120vh,1000px);}" ) ) : "" ) +
+      String( anchorId == "" ? String( F( ".wrp{width:94%;max-width:min(120vh,1000px);}" ) ) : "" ) +
       String( F("#") ) + mapId + String( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((408/600)*100%);}"
-      "#") ) + mapId + String( F(">img.map{z-index:1;}"
-      "#") ) + mapId + String( F(">img{position:absolute;display:block;width:100%;top:0;}"
+      "#") ) + mapId + String( F(" img.map{z-index:1;}"
+      "#") ) + mapId + String( F(" img{position:absolute;display:block;width:100%;top:0;}"
+      "#") ) + mapId + String( F(" .mapl{position:absolute;z-index:2;top:0;cursor:default;line-height:1;font-size:") ) + ( anchorId == "" ? String( F("calc(min(94vw,120vh,1000px)/76)") ) : String( F("calc(min(60vw,600px)/76)") ) ) + String( F(";}"
+      "#") ) + mapId + String( F(" .mapp{position:absolute;z-index:2;top:0;cursor:default;background:#A1A1A1;border-radius:50%;transform:translate(-50%,-50%);width:") ) + ( anchorId == "" ? String( F("calc(min(94vw,120vh,1000px)/76)") ) : String( F("calc(min(60vw,600px)/76)") ) ) + String( F(";height:") ) + ( anchorId == "" ? String( F("calc(min(94vw,120vh,1000px)/76)") ) : String( F("calc(min(60vw,600px)/76)") ) ) + String( F(";}"
+      "@media(max-device-width:800px) and (orientation:portrait){"
+        "#") ) + mapId + String( F(" .mapl{font-size:calc(94vw/76);}"
+        "#") ) + mapId + String( F(" .mapl{font-size:calc(94vw/76);}"
+        "#") ) + mapId + String( F(" .mapp{width:calc(94vw/76);height:calc(94vw/76);}"
+      "}"
     "';"
     "ae.appendChild(aes);"
+    "ae.innerHTML+='<div>"
+      "<div class=\"mapl\" style=\"top:46.7%;left:3.0%;\">УЖГОРОД</div>"
+      "<div class=\"mapl\" style=\"top:25.1%;left:10.5%;\">ЛЬВІВ</div>"
+      "<div class=\"mapl\" style=\"top:13.1%;left:16.9%;\">ЛУЦЬК</div>"
+      "<div class=\"mapl\" style=\"top:17.0%;left:24.2%;\">РІВНЕ</div>"
+      "<div class=\"mapl\" style=\"top:28.8%;left:23.9%;\">&nbsp;&nbsp;ХМЕЛЬ-<br>НИЦЬКИЙ</div>"
+      "<div class=\"mapl\" style=\"top:35.9%;left:15.7%;\">ТЕРНОПІЛЬ</div>"
+      "<div class=\"mapl\" style=\"top:43.3%;left:11.1%;\">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ІВАНО-<br>ФРАНКІВСЬК</div>"
+      "<div class=\"mapl\" style=\"top:48.3%;left:19.5%;\">ЧЕРНІВЦІ</div>"
+      "<div class=\"mapl\" style=\"top:43.8%;left:34.4%;\">ВІННИЦЯ</div>"
+      "<div class=\"mapl\" style=\"top:22.4%;left:32.3%;\">ЖИТОМИР</div>"
+      "<div class=\"mapl\" style=\"top:20.2%;left:43.8%;\">КИЇВ</div>"
+      "<div class=\"mapl\" style=\"top:13.7%;left:50.0%;\">ЧЕРНІГІВ</div>"
+      "<div class=\"mapl\" style=\"top:20.5%;left:67.3%;\">СУМИ</div>"
+      "<div class=\"mapl\" style=\"top:30.6%;left:75.3%;\">ХАРКІВ</div>"
+      "<div class=\"mapl\" style=\"top:35.4%;left:89.8%;\">ЛУГАНСЬК</div>"
+      "<div class=\"mapl\" style=\"top:45.5%;left:83.1%;\">ДОНЕЦЬК</div>"
+      "<div class=\"mapl\" style=\"top:59.5%;left:73.0%;\">ЗАПОРІЖЖЯ</div>"
+      "<div class=\"mapl\" style=\"top:44.1%;left:69.2%;\">ДНІПРО</div>"
+      "<div class=\"mapl\" style=\"top:35.5%;left:63.2%;\">ПОЛТАВА</div>"
+      "<div class=\"mapl\" style=\"top:33.3%;left:51.1%;\">ЧЕРКАСИ</div>"
+      "<div class=\"mapl\" style=\"top:45.7%;left:54.3%;\">КІРОВОГРАД</div>"
+      "<div class=\"mapl\" style=\"top:62.7%;left:52.9%;\">МИКОЛАЇВ</div>"
+      "<div class=\"mapl\" style=\"top:68.3%;left:44.5%;\">ОДЕСА</div>"
+      "<div class=\"mapl\" style=\"top:87.7%;left:64.2%;\">СІМФЕРОПОЛЬ</div>"
+      "<div class=\"mapl\" style=\"top:74.7%;left:59.2%;\">ХЕРСОН</div>"
+    "</div>"
+    "<div>"
+      "<div class=\"mapp\" style=\"top:44.1%;left:3.0%;\"></div>"
+      "<div class=\"mapp\" style=\"top:29.4%;left:11.5%;\"></div>"
+      "<div class=\"mapp\" style=\"top:17.4%;left:18.2%;\"></div>"
+      "<div class=\"mapp\" style=\"top:21.3%;left:24.7%;\"></div>"
+      "<div class=\"mapp\" style=\"top:35.3%;left:27.2%;\"></div>"
+      "<div class=\"mapp\" style=\"top:33.3%;left:20.0%;\"></div>"
+      "<div class=\"mapp\" style=\"top:40.6%;left:14.5%;\"></div>"
+      "<div class=\"mapp\" style=\"top:52.5%;left:21.2%;\"></div>"
+      "<div class=\"mapp\" style=\"top:41.2%;left:36.0%;\"></div>"
+      "<div class=\"mapp\" style=\"top:26.8%;left:37.2%;\"></div>"
+      "<div class=\"mapp\" style=\"top:24.6%;left:46.8%;\"></div>"
+      "<div class=\"mapp\" style=\"top:11.1%;left:51.3%;\"></div>"
+      "<div class=\"mapp\" style=\"top:17.9%;left:68.5%;\"></div>"
+      "<div class=\"mapp\" style=\"top:28.0%;left:76.3%;\"></div>"
+      "<div class=\"mapp\" style=\"top:39.7%;left:94.8%;\"></div>"
+      "<div class=\"mapp\" style=\"top:49.8%;left:87.3%;\"></div>"
+      "<div class=\"mapp\" style=\"top:56.9%;left:74.2%;\"></div>"
+      "<div class=\"mapp\" style=\"top:48.4%;left:70.5%;\"></div>"
+      "<div class=\"mapp\" style=\"top:32.9%;left:67.2%;\"></div>"
+      "<div class=\"mapp\" style=\"top:37.6%;left:54.3%;\"></div>"
+      "<div class=\"mapp\" style=\"top:50.0%;left:56.3%;\"></div>"
+      "<div class=\"mapp\" style=\"top:67.0%;left:55.2%;\"></div>"
+      "<div class=\"mapp\" style=\"top:72.7%;left:47.2%;\"></div>"
+      "<div class=\"mapp\" style=\"top:92.0%;left:69.5%;\"></div>"
+      "<div class=\"mapp\" style=\"top:72.1%;left:60.5%;\"></div>"
+    "</div>"
+    "';"
     "let map=ae.querySelector('.map');"
     "if(!map){"
       "map=document.createElement('img');"
       "map.classList.add('map');"
-      "map.setAttribute('src','") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f=map.gif');"
+      "map.setAttribute('src','") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f=map.svg');"
       "ae.appendChild(map);"
     "}"
     "setInterval(()=>{"
@@ -3061,16 +3170,16 @@ void handleWebServerGetMap() {
 
   if( anchorId == "" ) {
     content = getHtmlPage( content );
-    wifiWebServer.send( 200, F("text/html"), content );
+    wifiWebServer.send( 200, getContentType( F("html") ), content );
   } else {
-    wifiWebServer.send( 200, F("text/javascript"), content );
+    wifiWebServer.send( 200, getContentType( F("js") ), content );
   }
 }
 
 void handleWebServerGetFavIcon() {
   File file = LittleFS.open( F("/favicon.ico"), "r" );
   if( !file ) {
-    wifiWebServer.send( 404, F("text/plain"), F("File not found") );
+    wifiWebServer.send( 404, getContentType( F("txt") ), F("File not found") );
   } else {
     wifiWebServer.streamFile( file, F("image/x-icon") );
     file.close();
