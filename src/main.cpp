@@ -305,7 +305,7 @@ const int8_t RAID_ALARM_STATUS_ACTIVE = 1;
 
 uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(127, 15, 0);
 uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(179, 179, 0);
-uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(31, 127, 0);
+uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(31, 111, 0);
 uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(255, 255, 0);
 
 std::map<const char*, int8_t> regionToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
@@ -3054,14 +3054,14 @@ void handleWebServerGetMap() {
 
   String anchorId = wifiWebServer.arg("id");
   String mapId = anchorId == "" ? "map" : anchorId;
-  String content = String( anchorId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
+  String content = ( anchorId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
   String( F("function initMap(){"
     "let ae=document.querySelector('#") ) + mapId + String( F("');"
     "if(!ae)return;"
     "let aes=document.createElement('style');"
     "aes.textContent='") ) +
-      String( anchorId == "" ? String( F( ".wrp{width:94%;max-width:min(120vh,1000px);}" ) ) : "" ) +
-      String( F("#") ) + mapId + String( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((408/600)*100%);}"
+      ( anchorId == "" ? String( F( ".wrp{width:94%;max-width:min(120vh,1000px);}" ) ) : "" ) +
+      String( F("#") ) + mapId + String( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((680/1000)*100%);}"
       "#") ) + mapId + String( F(" img.map{z-index:1;}"
       "#") ) + mapId + String( F(" img{position:absolute;display:block;width:100%;top:0;}"
       "#") ) + mapId + String( F(" .mapl{position:absolute;z-index:2;top:0;cursor:default;line-height:1;font-size:") ) + ( anchorId == "" ? String( F("calc(min(94vw,120vh,1000px)/76)") ) : String( F("calc(min(60vw,600px)/76)") ) ) + String( F(";}"
@@ -3073,7 +3073,9 @@ void handleWebServerGetMap() {
       "}"
     "';"
     "ae.appendChild(aes);"
-    "ae.innerHTML+='<div>"
+    "ae.innerHTML+='") ) +
+    ( anchorId == "" ? "" : String( F("<a href=\"/") + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("\" style=\"position:absolute;right:0;top:0;z-index:3;\">Display Map</a>") ) ) ) +
+    String( F("<div>"
       "<div class=\"mapl\" style=\"top:46.7%;left:3.0%;\">УЖГОРОД</div>"
       "<div class=\"mapl\" style=\"top:25.1%;left:10.5%;\">ЛЬВІВ</div>"
       "<div class=\"mapl\" style=\"top:13.1%;left:16.9%;\">ЛУЦЬК</div>"
@@ -3166,7 +3168,7 @@ void handleWebServerGetMap() {
     "xhr.send(null);"
   "}"
   "initMap();") ) +
-  String( anchorId == "" ? String( F("</script></div>") ) : "" );
+  ( anchorId == "" ? String( F("</script></div>") ) : "" );
 
   if( anchorId == "" ) {
     content = getHtmlPage( content );
