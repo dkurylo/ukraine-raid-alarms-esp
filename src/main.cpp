@@ -3074,7 +3074,7 @@ void handleWebServerGetMap() {
     "';"
     "ae.appendChild(aes);"
     "ae.innerHTML+='") ) +
-    ( anchorId == "" ? "" : String( F("<a href=\"/") + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("\" style=\"position:absolute;right:0;top:0;z-index:3;\">Display Map</a>") ) ) ) +
+    ( anchorId == "" ? "" : String( F("<a href=\"") + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("\" style=\"position:absolute;right:0;top:0;z-index:3;\">Display Map</a>") ) ) ) +
     String( F("<div>"
       "<div class=\"mapl\" style=\"top:46.7%;left:3.0%;\">УЖГОРОД</div>"
       "<div class=\"mapl\" style=\"top:25.1%;left:10.5%;\">ЛЬВІВ</div>"
