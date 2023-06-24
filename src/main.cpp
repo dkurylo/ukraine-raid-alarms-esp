@@ -17,14 +17,8 @@
 
 #include <DNSServer.h> //for Captive Portal
 #include <WiFiClient.h>
-
-#include <NTPClient.h>
-#include <WiFiUdp.h>
-#include <time.h>
-#include <math.h>
 #include <EEPROM.h>
 #include <Adafruit_NeoPixel.h>
-
 #include <LittleFS.h>
 
 bool isNewBoard = false;
@@ -54,7 +48,7 @@ const uint8_t STRIP_PIN = 0;
 #else //ESP32 or ESP32S2
 const uint8_t STRIP_PIN = 18;
 #endif
-const uint16_t DELAY_DISPLAY_ANIMATION = 500; //led animation speed, in ms
+const uint16_t DELAY_DISPLAY_ANIMATION = 100; //led animation speed, in ms
 
 //addressable led strip status led colors confg
 const uint8_t STRIP_STATUS_BLACK = 0;
@@ -63,11 +57,9 @@ const uint8_t STRIP_STATUS_PROCESSING = 2;
 const uint8_t STRIP_STATUS_WIFI_CONNECTING = 3;
 const uint8_t STRIP_STATUS_WIFI_ERROR = 4;
 const uint8_t STRIP_STATUS_AP_ACTIVE = 5;
-const uint8_t STRIP_STATUS_SERVER_DNS_PROCESSING = 6;
-const uint8_t STRIP_STATUS_SERVER_DNS_ERROR = 7;
-const uint8_t STRIP_STATUS_SERVER_CONNECTION_ERROR = 8;
-const uint8_t STRIP_STATUS_SERVER_COMMUNICATION_ERROR = 9;
-const uint8_t STRIP_STATUS_PROCESSING_ERROR = 10;
+const uint8_t STRIP_STATUS_SERVER_CONNECTION_ERROR = 6;
+const uint8_t STRIP_STATUS_SERVER_COMMUNICATION_ERROR = 7;
+const uint8_t STRIP_STATUS_PROCESSING_ERROR = 8;
 
 //addressable led strip raid alarm region status colors confg
 const uint32_t RAID_ALARM_STATUS_COLOR_UNKNOWN = Adafruit_NeoPixel::Color(0, 0, 0);
@@ -83,12 +75,10 @@ const bool INTERNAL_LED_IS_USED = true;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_LOW = 59800;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
 
-//night mode settings
-const uint16_t TIMEOUT_NTP_CLIENT_CONNECT = 2500;
-const uint16_t DELAY_NTP_UPDATED_CHECK = 10000;
-const uint16_t DELAY_NIGHT_MODE_CHECK = 60000;
-const uint32_t DELAY_NTP_TIME_SYNC = 3600000;
-
+//brightness settings
+const uint16_t DELAY_BRIGHTNESS_UPDATE_CHECK = 50;
+const uint16_t BRIGHTNESS_NIGHT_LEVEL = 20;
+const uint16_t BRIGHTNESS_DAY_LEVEL = 130;
 
 
 //"vadimklimenko.com"
@@ -289,12 +279,12 @@ char raidAlarmServerApiKey[RAID_ALARM_SERVER_API_KEY_LENGTH];
 
 bool showOnlyActiveAlarms = false;
 bool showStripIdleStatusLed = false;
-uint8_t stripLedBrightness = 23; //out of 255
+uint8_t stripLedBrightness = 63; //out of 255
 uint8_t statusLedColor = STRIP_STATUS_OK;
 
-uint8_t stripLedBrightnessDimmingNight = 39;
-bool isNightMode = false;
-bool isUserAwake = true;
+uint8_t stripLedBrightnessDimmingNight = 7;
+//bool isNightMode = false;
+//bool isUserAwake = true;
 bool isNightModeTest = false;
 bool stripPartyMode = false;
 uint16_t stripPartyModeHue = 0;
@@ -303,10 +293,10 @@ const int8_t RAID_ALARM_STATUS_UNINITIALIZED = -1;
 const int8_t RAID_ALARM_STATUS_INACTIVE = 0;
 const int8_t RAID_ALARM_STATUS_ACTIVE = 1;
 
-uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(127, 15, 0);
-uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(179, 179, 0);
-uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(31, 111, 0);
-uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(255, 255, 0);
+uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(15, 143, 0);
+uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(159, 15, 0);
+uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(191, 191, 0);
+uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(255, 255, 0);
 
 std::map<const char*, int8_t> regionToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
 std::vector<std::vector<uint32_t>> transitionAnimations; //populated automatically
@@ -322,8 +312,8 @@ HTTPUpdateServer httpUpdater;
 
 DNSServer dnsServer;
 WiFiClient wiFiClient; //used for AC; UA, VK and AI use WiFiClientSecure and init it separately
-WiFiUDP ntpUdp;
-NTPClient timeClient(ntpUdp);
+//WiFiUDP ntpUdp;
+//NTPClient timeClient(ntpUdp);
 Adafruit_NeoPixel strip(STRIP_LED_COUNT, STRIP_PIN, NEO_GRB + NEO_KHZ800);
 
 
@@ -335,11 +325,8 @@ bool isFirstLoopRun = true;
 unsigned long previousMillisLedAnimation = millis();
 unsigned long previousMillisRaidAlarmCheck = millis();
 unsigned long previousMillisInternalLed = millis();
-unsigned long previousMillisNtpUpdatedCheck = millis();
-unsigned long previousMillisNightModeCheck = millis();
+unsigned long previousMillisBrightnessUpdatedCheck = millis();
 
-bool forceNtpUpdate = false;
-bool forceNightModeUpdate = false;
 bool forceRaidAlarmUpdate = false;
 
 const std::vector<std::vector<const char*>> getRegions() {
@@ -381,8 +368,7 @@ void initVariables() {
   previousMillisLedAnimation = currentMillis;
   previousMillisRaidAlarmCheck = currentMillis;
   previousMillisInternalLed = currentMillis;
-  previousMillisNtpUpdatedCheck = currentMillis;
-  previousMillisNightModeCheck = currentMillis;
+  previousMillisBrightnessUpdatedCheck = currentMillis;
 }
 
 
@@ -740,20 +726,42 @@ void shutdownAccessPoint() {
 }
 
 
-
 //led strip functionality
-bool isLedDimmingNightActive() {
-  return isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode );
-}
+double ledStripBrightnessCurrent = 0.0;
+int16_t brightnessSamples[50] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 
-uint8_t getLedDimmingNightCoeff() {
-  if( isNightModeTest || ( isNightMode && !isUserAwake ) ) {
-    return stripLedBrightnessDimmingNight;
-  } else if( isNightMode && isUserAwake ) {
-    uint16_t result = ( stripLedBrightnessDimmingNight + ( stripLedBrightness + stripLedBrightnessDimmingNight ) ) / 3;
-    return (uint8_t)result;
+void calculateLedStripBrightness() {
+  double brightnessAverage = 0;
+  int16_t brightnessSamplesLength = sizeof(brightnessSamples) / sizeof(brightnessSamples[0]);
+  uint8_t brightnessSamplesPopulated = 0;
+  for( int8_t i = brightnessSamplesLength - 1 - 1; i >= 0; i-- ) {
+    int16_t brightnessSample = brightnessSamples[i];
+    brightnessSamples[i+1] = brightnessSample;
+    if( brightnessSample != -1 ) {
+      brightnessAverage += brightnessSample;
+      brightnessSamplesPopulated++;
+    }
+  }
+
+  int16_t currentBrightness = analogRead(A0);
+  brightnessSamples[0] = currentBrightness;
+  brightnessAverage += currentBrightness;
+  brightnessSamplesPopulated++;
+
+  brightnessAverage = brightnessAverage / brightnessSamplesPopulated;
+  //Serial.print( brightnessAverage ); //xxx
+  //Serial.print( " - " ); //xxx
+
+  if( brightnessAverage >= BRIGHTNESS_DAY_LEVEL ) {
+    ledStripBrightnessCurrent = static_cast<double>(stripLedBrightness);
+    //Serial.print( "D " ); Serial.println( ledStripBrightnessCurrent ); //xxx
+  } else if( brightnessAverage < BRIGHTNESS_NIGHT_LEVEL ) {
+    ledStripBrightnessCurrent = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
+    //Serial.print( "N " ); Serial.println( ledStripBrightnessCurrent ); //xxx
   } else {
-    return stripLedBrightness;
+    double nightBrightness = static_cast<double>( stripLedBrightness ) * stripLedBrightnessDimmingNight / 255;
+    ledStripBrightnessCurrent = nightBrightness + static_cast<double>( stripLedBrightness - nightBrightness ) * ( brightnessAverage - BRIGHTNESS_NIGHT_LEVEL ) / ( BRIGHTNESS_DAY_LEVEL - BRIGHTNESS_NIGHT_LEVEL );
+    //Serial.print( "M " ); Serial.println( ledStripBrightnessCurrent ); //xxx
   }
 }
 
@@ -788,44 +796,32 @@ void renderStrip() {
     uint8_t g = (uint8_t)(alarmStatusLedColorToRender >> 8);
     uint8_t b = (uint8_t)alarmStatusLedColorToRender;
     if( alarmStatusLedColorToRender != 0 ) {
-      if( isLedDimmingNightActive() ) { //adjust led color brightness in night mode
-        uint8_t stripLedBrightnessNightCoeff = getLedDimmingNightCoeff();
-        uint8_t r_new = (r * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
-        uint8_t g_new = (g * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
-        uint8_t b_new = (b * stripLedBrightness * stripLedBrightnessNightCoeff) >> 16;
-        if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
-          r = r_new;
-          g = g_new;
-          b = b_new;
-        } else {
-          uint8_t maxValue = max( r, g, b );
-          r = r == maxValue ? 1 : r_new;
-          g = g == maxValue ? 1 : g_new;
-          b = b == maxValue ? 1 : b_new;
+      if( stripPartyMode ) {
+        uint16_t h = 0; uint8_t s = 0, v = 0;
+        rgbToHsv( r, g ,b, h, s, v );
+        if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
+          hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
+        } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
+          hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
         }
+      }
+      double ledStripBrightness = ledStripBrightnessCurrent;
+      if( isNightModeTest ) {
+        double newLedStripBrightness = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
+        ledStripBrightness = newLedStripBrightness;
+      }
+      uint8_t r_new = round( ledStripBrightness * r / 255 );
+      uint8_t g_new = round( ledStripBrightness * g / 255 );
+      uint8_t b_new = round( ledStripBrightness * b / 255 );
+      if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
+        r = r_new;
+        g = g_new;
+        b = b_new;
       } else {
-        if( stripPartyMode ) {
-          uint16_t h = 0; uint8_t s = 0, v = 0;
-          rgbToHsv( r, g ,b, h, s, v );
-          if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
-            hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
-          } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
-            hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
-          }
-        }
-        uint8_t r_new = (r * stripLedBrightness) >> 8;
-        uint8_t g_new = (g * stripLedBrightness) >> 8;
-        uint8_t b_new = (b * stripLedBrightness) >> 8;
-        if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
-          r = r_new;
-          g = g_new;
-          b = b_new;
-        } else {
-          uint8_t maxValue = max( r, g, b );
-          r = r == maxValue ? 1 : r_new;
-          g = g == maxValue ? 1 : g_new;
-          b = b == maxValue ? 1 : b_new;
-        }
+        uint8_t maxValue = max( r, g, b );
+        r = r == maxValue ? 1 : r_new;
+        g = g == maxValue ? 1 : g_new;
+        b = b == maxValue ? 1 : b_new;
       }
     }
     alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r, g, b);
@@ -854,12 +850,6 @@ bool setStripStatus() {
   } else if( statusLedColor == STRIP_STATUS_WIFI_ERROR ) {
     ledColor = Adafruit_NeoPixel::Color(0, 9, 9);
     dimLedAtNight = true;
-  } else if( statusLedColor == STRIP_STATUS_SERVER_DNS_PROCESSING ) {
-    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 2);
-    dimLedAtNight = false;
-  } else if( statusLedColor == STRIP_STATUS_SERVER_DNS_ERROR ) {
-    ledColor = Adafruit_NeoPixel::Color(0, 15, 0);
-    dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_SERVER_CONNECTION_ERROR ) {
     ledColor = Adafruit_NeoPixel::Color(0, 15, 0);
     dimLedAtNight = true;
@@ -870,25 +860,38 @@ bool setStripStatus() {
     ledColor = Adafruit_NeoPixel::Color(15, 0, 0);
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING ) {
-    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(0, 0, 2);
+    ledColor = Adafruit_NeoPixel::Color(0, 0, 0);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_BLACK || ( !showStripIdleStatusLed && statusLedColor == STRIP_STATUS_OK ) ) {
     ledColor = Adafruit_NeoPixel::Color(0, 0, 0);
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_OK ) {
-    ledColor = ( isNightModeTest || ( stripLedBrightnessDimmingNight != 255 && ( isNightMode || !isUserAwake ) && !stripPartyMode ) ) ? Adafruit_NeoPixel::Color(0, 0, 0) : Adafruit_NeoPixel::Color(1, 1, 1);
+    ledColor = Adafruit_NeoPixel::Color(1, 1, 1);
     dimLedAtNight = false;
   }
 
   if( dimLedAtNight ) {
-    if( isLedDimmingNightActive() ) { //adjust status led color to night mode
-      uint8_t r = (uint8_t)(ledColor >> 16), g = (uint8_t)(ledColor >> 8), b = (uint8_t)ledColor;
-      uint8_t stripLedBrightnessNightCoeff = getLedDimmingNightCoeff();
-      r = (r * stripLedBrightnessNightCoeff ) >> 8;
-      g = (g * stripLedBrightnessNightCoeff ) >> 8;
-      b = (b * stripLedBrightnessNightCoeff ) >> 8;
-      ledColor = Adafruit_NeoPixel::Color(r, g, b);
+    uint8_t r = (uint8_t)(ledColor >> 16), g = (uint8_t)(ledColor >> 8), b = (uint8_t)ledColor;
+
+    double ledStripBrightness = ledStripBrightnessCurrent;
+    if( isNightModeTest ) {
+      double newLedStripBrightness = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
+      ledStripBrightness = newLedStripBrightness;
     }
+    uint8_t r_new = round( ledStripBrightness * r / 255 );
+    uint8_t g_new = round( ledStripBrightness * g / 255 );
+    uint8_t b_new = round( ledStripBrightness * b / 255 );
+    if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
+      r = r_new;
+      g = g_new;
+      b = b_new;
+    } else {
+      uint8_t maxValue = max( r, g, b );
+      r = r == maxValue ? 1 : r_new;
+      g = g == maxValue ? 1 : g_new;
+      b = b == maxValue ? 1 : b_new;
+    }
+    ledColor = Adafruit_NeoPixel::Color(r, g, b);
   }
 
   strip.setPixelColor( STRIP_STATUS_LED_INDEX, ledColor );
@@ -927,11 +930,7 @@ void setInternalLedStatus( uint8_t status ) {
   internalLedStatus = status;
 
   if( INTERNAL_LED_IS_USED ) {
-    if( isNightMode ) {
-      digitalWrite( LED_BUILTIN, INVERT_INTERNAL_LED ? HIGH : LOW );
-    } else {
-      digitalWrite( LED_BUILTIN, INVERT_INTERNAL_LED ? ( status == HIGH ? LOW : HIGH ) : status );
-    }
+    digitalWrite( LED_BUILTIN, INVERT_INTERNAL_LED ? ( status == HIGH ? LOW : HIGH ) : status );
   }
 }
 
@@ -943,196 +942,11 @@ void initInternalLed() {
 }
 
 
-
-//time of day functionality
-bool isTimeClientInitialised = false;
-unsigned long timeClientUpdatedMillis = 0;
-bool timeClientTimeInitStatus = false;
-void initTimeClient() {
-  if( stripLedBrightnessDimmingNight != 255 ) {
-    if( WiFi.isConnected() && !isTimeClientInitialised ) {
-      timeClient.setUpdateInterval( DELAY_NTP_TIME_SYNC );
-      Serial.print( F("Starting NTP client...") );
-      timeClient.begin();
-      isTimeClientInitialised = true;
-      Serial.println( F(" done") );
-    }
-  } else {
-    if( isTimeClientInitialised ) {
-      isTimeClientInitialised = false;
-      Serial.print( F("Stopping NTP client...") );
-      timeClient.end();
-      timeClientTimeInitStatus = false;
-      Serial.println( F(" done") );
-    }
-  }
-}
-
-bool updateTimeClient( bool canWait ) {
-  if( stripLedBrightnessDimmingNight != 255 ) {
-    if( !WiFi.isConnected() ) return false;
-    if( !timeClient.isTimeSet() ) {
-      if( !isTimeClientInitialised ) {
-        initTimeClient();
-      }
-      if( isTimeClientInitialised ) {
-        Serial.print( F("Updating NTP time...") );
-        timeClient.update();
-        if( canWait ) {
-          timeClientUpdatedMillis = millis();
-          while( !timeClient.isTimeSet() && ( calculateDiffMillis( timeClientUpdatedMillis, millis() ) < TIMEOUT_NTP_CLIENT_CONNECT ) ) {
-            delay( 250 );
-            Serial.print( "." );
-          }
-        }
-        Serial.println( F(" done") );
-      }
-    }
-  }
-  return true;
-}
-
-time_t getTodayTimeAt( time_t dt, int hour, int minute ) {
-  struct tm* startOfDay = localtime(&dt);
-  startOfDay->tm_hour = hour;
-  startOfDay->tm_min = minute;
-  startOfDay->tm_sec = 0;
-  time_t startDay = mktime(startOfDay);
-  return startDay;
-}
-
-uint32_t getSecsFromStartOfDay( time_t dt ) {
-  time_t startDay = getTodayTimeAt( dt, 0, 0 );
-  uint32_t secsFromStartOfDay = (uint32_t)(difftime(dt, startDay));
-  return secsFromStartOfDay;
-}
-
-uint32_t getSecsFromStartOfYear( time_t dt ) {
-  struct tm* startOfYear = localtime(&dt);
-  startOfYear->tm_mon = 0;
-  startOfYear->tm_mday = 1;
-  startOfYear->tm_hour = 0;
-  startOfYear->tm_min = 0;
-  startOfYear->tm_sec = 0;
-  time_t startYear = mktime(startOfYear);
-  uint32_t secsFromStartYear = (uint32_t)(dt - startYear);
-  return secsFromStartYear;
-}
-
-bool isWithinDstBoundaries( time_t dt ) {
-  struct tm *timeinfo = gmtime(&dt);
-
-  // Get the last Sunday of March in the current year
-  struct tm lastMarchSunday = {0};
-  lastMarchSunday.tm_year = timeinfo->tm_year;
-  lastMarchSunday.tm_mon = 2; // March (0-based)
-  lastMarchSunday.tm_mday = 31; // Last day of March
-  mktime(&lastMarchSunday);
-  while (lastMarchSunday.tm_wday != 0) { // 0 = Sunday
-    lastMarchSunday.tm_mday--;
-    mktime(&lastMarchSunday);
-  }
-  lastMarchSunday.tm_hour = 1;
-  lastMarchSunday.tm_min = 0;
-  lastMarchSunday.tm_sec = 0;
-
-  // Get the last Sunday of October in the current year
-  struct tm lastOctoberSunday = {0};
-  lastOctoberSunday.tm_year = timeinfo->tm_year;
-  lastOctoberSunday.tm_mon = 9; // October (0-based)
-  lastOctoberSunday.tm_mday = 31; // Last day of October
-  mktime(&lastOctoberSunday);
-  while (lastOctoberSunday.tm_wday != 0) { // 0 = Sunday
-    lastOctoberSunday.tm_mday--;
-    mktime(&lastOctoberSunday);
-  }
-  lastOctoberSunday.tm_hour = 1;
-  lastOctoberSunday.tm_min = 0;
-  lastOctoberSunday.tm_sec = 0;
-
-  // Convert the struct tm to time_t
-  time_t lastMarchSunday_t = mktime(&lastMarchSunday);
-  time_t lastOctoberSunday_t = mktime(&lastOctoberSunday);
-
-  // Check if the datetime is within the DST boundaries
-  return dt > lastMarchSunday_t && dt < lastOctoberSunday_t;
-}
-
-std::pair<uint32_t, int8_t> getSunEvent( time_t dt, bool isSunrise ) { //true = sunrise event; false = sunset event
-  double secsInOneDay = 60.0 * 60.0 * 24.0;
-  double daysFromStartYear = (double)getSecsFromStartOfYear(dt) / secsInOneDay;
-
-  double latitude = 49.8397;
-  double longitude = 24.0297;
-  double zenith = 90.8333;
-
-  double longitudeHour = longitude / 360.0 * 24.0;
-
-  double timeOfEventApprox = daysFromStartYear + ( ( ( isSunrise ? 6.0 : 18.0 ) - longitudeHour ) / 24.0 );
-  double sunMeanAnomaly = ( 0.9856 * timeOfEventApprox ) - 3.289;
-  double sunLongitude = sunMeanAnomaly + ( 1.916 * sin( sunMeanAnomaly * M_PI / 180.0 ) ) + ( 0.020 * sin( 2 * sunMeanAnomaly * M_PI / 180.0 ) ) + 282.634;
-  double sunRightAscension = atan( 0.91764 * tan( sunLongitude * M_PI / 180.0 ) ) * 180.0 / M_PI;
-  double sunLongitudeQuadrant = floor( sunLongitude / 90.0 ) * 90.0;
-  double sunRightAscensionQuadrant = floor( sunRightAscension / 90.0 ) * 90.0;
-  sunRightAscension = sunRightAscension + ( sunLongitudeQuadrant - sunRightAscensionQuadrant );
-  double sunRightAscensionHour = sunRightAscension / 360.0 * 24.0;
-  double sunDeclinationSin = 0.39782 * sin( sunLongitude * M_PI / 180.0 );
-  double sunDeclinationCos = cos( asin( sunDeclinationSin ) );
-  double sunLocalAngleCos = ( cos( zenith * M_PI / 180.0 ) - ( sunDeclinationSin * sin( latitude * M_PI / 180.0 ) ) ) / ( sunDeclinationCos * cos( latitude * M_PI / 180.0 ) );
-  if( sunLocalAngleCos > 1 ) return std::make_pair(0, -1); //never rises
-  if( sunLocalAngleCos < - 1 ) return std::make_pair(0, 1); //never sets
-  double sunLocalAngle = isSunrise ? ( 360.0 - acos( sunLocalAngleCos ) * 180.0 / M_PI ) : ( acos( sunLocalAngleCos ) * 180.0 / M_PI );
-  double sunLocalHour = sunLocalAngle / 360.0 * 24.0;
-  double sunEventLocalTime = sunLocalHour + sunRightAscensionHour - ( 0.06571 * timeOfEventApprox ) - 6.622;
-  double sunEventTime = sunEventLocalTime - longitudeHour;
-  if( sunEventTime < 0 ) sunEventTime += 24;
-  if( sunEventTime >= 24 ) sunEventTime -= 24;
-  uint32_t sunEventSecsFromStartOfDay = (uint32_t)(sunEventTime * 60 * 60);
-  return std::make_pair(sunEventSecsFromStartOfDay, 0);
-}
-
-void calculateTimeOfDay( time_t dt ) {
-  uint32_t secsFromStartOfDay = getSecsFromStartOfDay(dt);
-  std::pair<uint32_t, int8_t> secsFromStartOfDaytoSunrise = getSunEvent(dt, true);
-  if( secsFromStartOfDaytoSunrise.second == -1 ) { //never rises
-    isNightMode = true;
-  } else if( secsFromStartOfDaytoSunrise.second == 1 ) { //never sets
-    isNightMode = false;
-  } else if( secsFromStartOfDay < secsFromStartOfDaytoSunrise.first ) { //night before sunrise
-    isNightMode = true;
-  } else { //day or night after sunset
-    std::pair<uint32_t, int8_t> secsFromStartOfDaytoSunset = getSunEvent(dt, false);
-    if( secsFromStartOfDaytoSunset.second == -1 ) { //never rises
-      isNightMode = true;
-    } else if( secsFromStartOfDaytoSunset.second == 1 ) { //never sets
-      isNightMode = false;
-    } else if( secsFromStartOfDay > secsFromStartOfDaytoSunset.first ) { //night after sunset
-      isNightMode = true;
-    } else { //day
-      isNightMode = false;
-    }
-  }
-  int8_t dstBoundariesCorrection = isWithinDstBoundaries( dt ) ? -1 : 0;
-  isUserAwake = difftime(dt, getTodayTimeAt(dt, 6 + dstBoundariesCorrection, 0)) > 0 && difftime(dt, getTodayTimeAt(dt, 19 + dstBoundariesCorrection, 30)) < 0;
-}
-
-bool processTimeOfDay() {
-  if( stripLedBrightnessDimmingNight == 255 ) return true;
-  if( !timeClient.isTimeSet() ) return false;
-  calculateTimeOfDay( timeClient.getEpochTime() );
-  return true;
-}
-
-
 //data update helpers
 void forceRefreshData() {
   initVariables();
-  initTimeClient();
-  //forceNtpUpdate = true;
-  forceNightModeUpdate = true;
   forceRaidAlarmUpdate = true;
 }
-
 
 
 //wifi connection as a client
@@ -1176,45 +990,6 @@ void disconnectFromWiFi( bool erasePreviousCredentials ) {
   }
 }
 
-void processWiFiConnection() {
-  wl_status_t wifiStatus = WiFi.status();
-  if( WiFi.isConnected() ) {
-    Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
-    setStripStatus( STRIP_STATUS_OK );
-    shutdownAccessPoint();
-    forceRefreshData();
-  } else if( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) {
-    Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
-    setStripStatus( STRIP_STATUS_WIFI_ERROR );
-  }
-}
-
-void processWiFiConnectionWithWait() {
-  unsigned long wiFiConnectStartedMillis = millis();
-  uint8_t previousInternalLedStatus = getInternalLedStatus();
-  while( true ) {
-    renderStripStatus( STRIP_STATUS_WIFI_CONNECTING );
-    setInternalLedStatus( HIGH );
-    delay( 1000 );
-    Serial.print( "." );
-    wl_status_t wifiStatus = WiFi.status();
-    if( WiFi.isConnected() ) {
-      Serial.println( F(" done") );
-      renderStripStatus( STRIP_STATUS_OK );
-      setInternalLedStatus( previousInternalLedStatus );
-      shutdownAccessPoint();
-      forceRefreshData();
-      break;
-    } else if( ( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) && ( calculateDiffMillis( wiFiConnectStartedMillis, millis() ) >= TIMEOUT_CONNECT_WIFI ) ) {
-      Serial.println( String( F(" ERROR: ") ) + getWiFiStatusText( wifiStatus ) );
-      renderStripStatus( STRIP_STATUS_WIFI_ERROR );
-      setInternalLedStatus( previousInternalLedStatus );
-      disconnectFromWiFi( false );
-      createAccessPoint();
-      break;
-    }
-  }
-}
 
 void connectToWiFi( bool forceConnect, bool tryNewCredentials ) { //wifi creds are automatically stored in NVM when WiFi.begin( ssid, pwd ) is used, and automatically read from NVM if WiFi.begin() is used
   if( strlen(wiFiClientSsid) == 0 ) {
@@ -1240,10 +1015,44 @@ void connectToWiFi( bool forceConnect, bool tryNewCredentials ) { //wifi creds a
     return;
   }
 
-  if( forceConnect || tryNewCredentials ) {
-    processWiFiConnectionWithWait();
-  } else {
-    processWiFiConnection();
+  if( forceConnect || tryNewCredentials ) { //wait
+    unsigned long wiFiConnectStartedMillis = millis();
+    uint8_t previousInternalLedStatus = getInternalLedStatus();
+    while( true ) {
+      renderStripStatus( STRIP_STATUS_WIFI_CONNECTING );
+      setInternalLedStatus( HIGH );
+      delay( 1000 );
+      Serial.print( "." );
+      wl_status_t wifiStatus = WiFi.status();
+      if( WiFi.isConnected() ) {
+        Serial.println( F(" done") );
+        renderStripStatus( STRIP_STATUS_OK );
+        setInternalLedStatus( previousInternalLedStatus );
+        shutdownAccessPoint();
+        forceRefreshData();
+        break;
+      } else if( ( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) && ( calculateDiffMillis( wiFiConnectStartedMillis, millis() ) >= TIMEOUT_CONNECT_WIFI ) ) {
+        Serial.println( String( F(" ERROR: ") ) + getWiFiStatusText( wifiStatus ) );
+        renderStripStatus( STRIP_STATUS_WIFI_ERROR );
+        setInternalLedStatus( previousInternalLedStatus );
+        disconnectFromWiFi( false );
+        createAccessPoint();
+        break;
+      }
+    }
+  } else { //no wait
+    wl_status_t wifiStatus = WiFi.status();
+    if( WiFi.isConnected() ) {
+      Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
+      setStripStatus( STRIP_STATUS_OK );
+      shutdownAccessPoint();
+      forceRefreshData();
+    } else if( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS || wifiStatus == WL_DISCONNECTED ) {
+      Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
+      setStripStatus( STRIP_STATUS_WIFI_ERROR );
+      disconnectFromWiFi( false );
+      createAccessPoint();
+    }
   }
 }
 
@@ -1285,101 +1094,31 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
     if( isAlarmEnabled ) {
       transitionAnimation.insert(
         transitionAnimation.end(),
-        /*{
-          isNightMode || isNightModeTest
-          ? raidAlarmStatusColorActiveBlink
-          : Adafruit_NeoPixel::Color(
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >> 16)) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >> 16)) * 0.3) ),
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >>  8)) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >>  8)) * 0.3) ),
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive)      )) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink)      )) * 0.3) )
-          ),
-          raidAlarmStatusColorActive,
-          isNightMode || isNightModeTest
-          ? raidAlarmStatusColorActiveBlink
-          : Adafruit_NeoPixel::Color(
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >> 16)) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >> 16)) * 0.6) ),
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >>  8)) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >>  8)) * 0.6) ),
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive)      )) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink)      )) * 0.6) )
-          ),
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          isNightMode || isNightModeTest
-          ? raidAlarmStatusColorActiveBlink
-          : Adafruit_NeoPixel::Color(
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >> 16)) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >> 16)) * 0.6) ),
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >>  8)) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >>  8)) * 0.6) ),
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive)      )) * 0.4) + (((uint8_t)((raidAlarmStatusColorActiveBlink)      )) * 0.6) )
-          ),
-          raidAlarmStatusColorActive,
-          isNightMode || isNightModeTest
-          ? raidAlarmStatusColorActiveBlink
-          : Adafruit_NeoPixel::Color(
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >> 16)) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >> 16)) * 0.3) ),
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >>  8)) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink) >>  8)) * 0.3) ),
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive)      )) * 0.7) + (((uint8_t)((raidAlarmStatusColorActiveBlink)      )) * 0.3) )
-          ),
-        }*/
         {
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink
         }
       );
     } else {
       transitionAnimation.insert(
         transitionAnimation.end(),
-        /*{
-          isNightMode || isNightModeTest
-          ? raidAlarmStatusColorInactiveBlink
-          : Adafruit_NeoPixel::Color(
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >> 16)) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >> 16)) * 0.3) ),
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >>  8)) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >>  8)) * 0.3) ),
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive)      )) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink)      )) * 0.3) )
-          ),
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          isNightMode || isNightModeTest
-          ? raidAlarmStatusColorInactiveBlink
-          : Adafruit_NeoPixel::Color(
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >> 16)) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >> 16)) * 0.6) ),
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive) >>  8)) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >>  8)) * 0.6) ),
-            (uint8_t)( (((uint8_t)((raidAlarmStatusColorActive)      )) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink)      )) * 0.6) )
-          ),
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          isNightMode || isNightModeTest
-          ? raidAlarmStatusColorInactiveBlink
-          : Adafruit_NeoPixel::Color(
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >> 16)) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >> 16)) * 0.6) ),
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >>  8)) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >>  8)) * 0.6) ),
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive)      )) * 0.4) + (((uint8_t)((raidAlarmStatusColorInactiveBlink)      )) * 0.6) )
-          ),
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          isNightMode || isNightModeTest
-          ? raidAlarmStatusColorInactiveBlink
-          : Adafruit_NeoPixel::Color(
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >> 16)) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >> 16)) * 0.3) ),
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive) >>  8)) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink) >>  8)) * 0.3) ),
-            (uint8_t)( (((uint8_t)((showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive)      )) * 0.7) + (((uint8_t)((raidAlarmStatusColorInactiveBlink)      )) * 0.3) )
-          ),
-        }*/
         {
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
         }
       );
     }
@@ -1390,24 +1129,6 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
 
 
 //alarms data retrieval and processing
-void getIpAddress( const char* serverName, IPAddress& ipAddress ) {
-  #ifdef ESP8266
-  if( ipAddress.isSet() ) return;
-  #else //ESP32 or ESP32S2
-  if( ipAddress ) return;
-  #endif
-
-  Serial.print( String( F("Resolving IP for '") ) + String( serverName ) + String( F("'...") ) );
-  renderStripStatus( STRIP_STATUS_SERVER_DNS_PROCESSING );
-  if( WiFi.hostByName( serverName, ipAddress ) ) {
-    renderStripStatus( STRIP_STATUS_OK );
-    Serial.print( String( F(" done | IP: ") ) + ipAddress.toString() );
-  } else {
-    renderStripStatus( STRIP_STATUS_SERVER_DNS_ERROR );
-    Serial.println( F(" ERROR") );
-  }
-}
-
 //functions for VK server
 void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
   bool isParseError = false;
@@ -1435,24 +1156,6 @@ void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
     setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
   }
 }
-
-/*void vkProcessServerData( String receivedRegion, bool receivedAlarmStatus ) { //processes single region at a time when it's found in JSON received
-  bool isRegionFound = false;
-  const std::vector<std::vector<const char*>>& allRegions = getRegions();
-  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    const std::vector<const char*>& regions = allRegions[ledIndex];
-    for( const char* region : regions ) {
-      if( strcmp( region, receivedRegion.c_str() ) != 0 ) continue;
-      isRegionFound = true;
-      processRaidAlarmStatus( ledIndex, region, receivedAlarmStatus );
-      break;
-    }
-  }
-  if( !isRegionFound ) {
-    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-    Serial.println( F("ERROR: JSON data processing failed: region ") + receivedRegion + F(" not found") );
-  }
-}*/
 
 void vkRetrieveAndProcessServerData() {
   WiFiClientSecure wiFiClient;
@@ -1553,7 +1256,6 @@ void vkRetrieveAndProcessServerData() {
             currCharComparedIndex = 0;
             if( jsonRegion != "" && ( jsonStatus == "true" || jsonStatus == "false" ) ) {
               regionToAlarmStatus[ jsonRegion ] = jsonStatus == "true";
-              //vkProcessServerData( jsonRegion, jsonStatus == "true" );
               jsonRegion = "";
               jsonStatus = "";
             }
@@ -1611,12 +1313,6 @@ void vkRetrieveAndProcessServerData() {
           }
           //response processing end
         }
-
-        //if( numBytesAvailable < responseCharBufferLength ) {
-        //  yield();
-        //}
-
-        //if( reportedResponseLength == 0 ) break;
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
@@ -1786,12 +1482,6 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
           }
           //response processing end
         }
-
-        //if( numBytesAvailable < responseCharBufferLength ) {
-        //  yield();
-        //}
-
-        //if( reportedResponseLength == 0 ) break;
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
@@ -2130,12 +1820,6 @@ void uaRetrieveAndProcessServerData() {
           }
           //response processing end
         }
-
-        //if( numBytesAvailable < responseCharBufferLength ) {
-        //  yield();
-        //}
-
-        //if( reportedResponseLength == 0 ) break;
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
@@ -2318,24 +2002,6 @@ void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
   }
 }
 
-/*void aiProcessServerData( String receivedRegionIndex, bool receivedAlarmStatus ) { //processes single region at a time when it's found in JSON received
-  bool isRegionFound = false;
-  const std::vector<std::vector<const char*>>& allRegions = getRegions();
-  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    const std::vector<const char*>& regions = allRegions[ledIndex];
-    for( const char* region : regions ) {
-      if( strcmp( region, receivedRegionIndex.c_str() ) != 0 ) continue;
-      isRegionFound = true;
-      processRaidAlarmStatus( ledIndex, region, receivedAlarmStatus );
-      break;
-    }
-  }
-  if( !isRegionFound ) {
-    setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
-    Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + receivedRegionIndex + String( F(" not found") ) );
-  }
-}*/
-
 void aiRetrieveAndProcessServerData() {
   WiFiClientSecure wiFiClient;
   wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
@@ -2419,16 +2085,9 @@ void aiRetrieveAndProcessServerData() {
           }
           if( !jsonStringFound ) continue;
           regionToAlarmStatus[String(jsonRegionIndex)] = responseCurrChar == 'A' || responseCurrChar == 'P'; //A - активна в усій області; P - часткова тривога в районах чи громадах; N - немає тривоги
-          //aiProcessServerData( String( jsonRegionIndex ), responseCurrChar == 'A' || responseCurrChar == 'P' ); //A - активна в усій області; P - часткова тривога в районах чи громадах; N - немає тривоги
           jsonRegionIndex++;
           //response processing end
         }
-
-        //if( numBytesAvailable < responseCharBufferLength ) {
-        //  yield();
-        //}
-
-        //if( reportedResponseLength == 0 ) break;
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
@@ -2648,13 +2307,16 @@ void handleWebServerGet() {
     "</div>"
   "</div>"
   "<div class=\"fx\">"
+    "<h2>Brightness:</h2>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Day"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Night<span class=\"i\" title=\"When set to maximum, night brighness will be the same as day brightness\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) + String( F("</div>"
+  "</div>"
+  "<div class=\"fx\">"
     "<h2>Colors:</h2>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Brightness"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Alarm Off"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Alarm On"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("On &rarr; Off"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Off &rarr; On"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Night Dimming<span class=\"i\" title=\"Dimming is applied with respect to brightness\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) + String( F("</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Other Settings:</h2>"
@@ -2917,8 +2579,6 @@ void handleWebServerPost() {
     stripLedBrightnessDimmingNight = stripLedBrightnessDimmingNightReceived;
     isStripRerenderRequired = true;
     Serial.println( F("Strip night brightness updated") );
-    initTimeClient();
-    updateTimeClient( false );
     writeEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNightReceived );
   }
 
@@ -3197,7 +2857,7 @@ void stopWebServer() {
 }
 
 void startWebServer() {
-  if( /*!isApInitialized || !wiFiClient.connected() || */isWebServerInitialized ) return;
+  if( isWebServerInitialized ) return;
   Serial.print( F("Starting web server...") );
   wifiWebServer.begin();
   isWebServerInitialized = true;
@@ -3219,10 +2879,10 @@ void configureWebServer() {
 }
 
 
-WiFiEventHandler wiFiEventHandler;
+/*WiFiEventHandler wiFiEventHandler;
 void onWiFiConnected( const WiFiEventStationModeConnected&event ) {
-  forceNtpUpdate = true;
-}
+
+}*/
 
 //setup and main loop
 void setup() {
@@ -3237,11 +2897,9 @@ void setup() {
   initVariables();
   LittleFS.begin();
   configureWebServer();
-  wiFiEventHandler = WiFi.onStationModeConnected( &onWiFiConnected );
+  //wiFiEventHandler = WiFi.onStationModeConnected( &onWiFiConnected );
   connectToWiFi( true, true );
   startWebServer();
-  initTimeClient();
-  //updateTimeClient( true );
 }
 
 void loop() {
@@ -3255,25 +2913,14 @@ void loop() {
   }
   wifiWebServer.handleClient();
 
+  if( isFirstLoopRun || ( calculateDiffMillis( previousMillisBrightnessUpdatedCheck, millis() ) >= DELAY_BRIGHTNESS_UPDATE_CHECK ) ) {
+    calculateLedStripBrightness();
+    previousMillisBrightnessUpdatedCheck = millis();
+  }
+
   if( isApInitialized && ( calculateDiffMillis( apStartedMillis, millis() ) >= TIMEOUT_AP ) ) {
     shutdownAccessPoint();
     connectToWiFi( true, false );
-  }
-
-  if( isFirstLoopRun || forceNtpUpdate || ( calculateDiffMillis( previousMillisNtpUpdatedCheck, millis() ) >= DELAY_NTP_UPDATED_CHECK ) ) {
-    if( updateTimeClient( false ) ) {
-      forceNtpUpdate = false;
-    }
-    previousMillisNtpUpdatedCheck = millis();
-  }
-  if( isFirstLoopRun || forceNightModeUpdate || ( calculateDiffMillis( previousMillisNightModeCheck, millis() ) >= DELAY_NIGHT_MODE_CHECK ) || timeClientTimeInitStatus != timeClient.isTimeSet() ) {
-    if( timeClientTimeInitStatus != timeClient.isTimeSet() ) {
-      timeClientTimeInitStatus = timeClient.isTimeSet();
-    }
-    if( processTimeOfDay() ) {
-      forceNightModeUpdate = false;
-    }
-    previousMillisNightModeCheck = millis();
   }
 
   switch( currentRaidAlarmServer ) {
