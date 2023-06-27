@@ -76,9 +76,9 @@ const uint16_t DELAY_INTERNAL_LED_ANIMATION_LOW = 59800;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
 
 //brightness settings
-const uint16_t DELAY_BRIGHTNESS_UPDATE_CHECK = 50;
-const uint16_t BRIGHTNESS_NIGHT_LEVEL = 20;
-const uint16_t BRIGHTNESS_DAY_LEVEL = 130;
+const uint16_t DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK = 50;
+const uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 20;
+const uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 110;
 
 
 //"vadimklimenko.com"
@@ -325,7 +325,7 @@ bool isFirstLoopRun = true;
 unsigned long previousMillisLedAnimation = millis();
 unsigned long previousMillisRaidAlarmCheck = millis();
 unsigned long previousMillisInternalLed = millis();
-unsigned long previousMillisBrightnessUpdatedCheck = millis();
+unsigned long previousMillisSensorBrightnessCheck = millis();
 
 bool forceRaidAlarmUpdate = false;
 
@@ -368,7 +368,7 @@ void initVariables() {
   previousMillisLedAnimation = currentMillis;
   previousMillisRaidAlarmCheck = currentMillis;
   previousMillisInternalLed = currentMillis;
-  previousMillisBrightnessUpdatedCheck = currentMillis;
+  previousMillisSensorBrightnessCheck = currentMillis;
 }
 
 
@@ -433,7 +433,7 @@ void rgbToHsv( uint8_t r, uint8_t g, uint8_t b, uint16_t& h, uint8_t& s, uint8_t
 }
 
 void hsvToRgb( uint16_t h, uint8_t s, uint8_t v, uint8_t& r, uint8_t& g, uint8_t& b ) {
-    float fh = h / 359.0f;
+    float fh = h / 360.0f;
     float fs = s / 255.0f;
     float fv = v / 255.0f;
     
@@ -728,44 +728,34 @@ void shutdownAccessPoint() {
 
 //led strip functionality
 double ledStripBrightnessCurrent = 0.0;
-int16_t brightnessSamples[50] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+double sensorBrightnessAverage = 0.0;
+uint8_t sensorBrightnessSamplesTaken = 0;
 
 void calculateLedStripBrightness() {
-  double brightnessAverage = 0;
-  int16_t brightnessSamplesLength = sizeof(brightnessSamples) / sizeof(brightnessSamples[0]);
-  uint8_t brightnessSamplesPopulated = 0;
-  for( int8_t i = brightnessSamplesLength - 1 - 1; i >= 0; i-- ) {
-    int16_t brightnessSample = brightnessSamples[i];
-    brightnessSamples[i+1] = brightnessSample;
-    if( brightnessSample != -1 ) {
-      brightnessAverage += brightnessSample;
-      brightnessSamplesPopulated++;
-    }
+  uint8_t sensorBrightnessSamplesToTake = 50;
+  uint16_t currentBrightness = analogRead(A0);
+  if( sensorBrightnessSamplesTaken < sensorBrightnessSamplesToTake ) {
+    sensorBrightnessSamplesTaken++;
   }
+  sensorBrightnessAverage = ( sensorBrightnessAverage * ( sensorBrightnessSamplesTaken - 1 ) + currentBrightness ) / sensorBrightnessSamplesTaken;
 
-  int16_t currentBrightness = analogRead(A0);
-  brightnessSamples[0] = currentBrightness;
-  brightnessAverage += currentBrightness;
-  brightnessSamplesPopulated++;
-
-  brightnessAverage = brightnessAverage / brightnessSamplesPopulated;
-  //Serial.print( brightnessAverage ); //xxx
-  //Serial.print( " - " ); //xxx
-
-  if( brightnessAverage >= BRIGHTNESS_DAY_LEVEL ) {
+  if( sensorBrightnessAverage >= SENSOR_BRIGHTNESS_DAY_LEVEL ) {
     ledStripBrightnessCurrent = static_cast<double>(stripLedBrightness);
-    //Serial.print( "D " ); Serial.println( ledStripBrightnessCurrent ); //xxx
-  } else if( brightnessAverage < BRIGHTNESS_NIGHT_LEVEL ) {
+  } else if( sensorBrightnessAverage <= SENSOR_BRIGHTNESS_NIGHT_LEVEL ) {
     ledStripBrightnessCurrent = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
-    //Serial.print( "N " ); Serial.println( ledStripBrightnessCurrent ); //xxx
   } else {
     double nightBrightness = static_cast<double>( stripLedBrightness ) * stripLedBrightnessDimmingNight / 255;
-    ledStripBrightnessCurrent = nightBrightness + static_cast<double>( stripLedBrightness - nightBrightness ) * ( brightnessAverage - BRIGHTNESS_NIGHT_LEVEL ) / ( BRIGHTNESS_DAY_LEVEL - BRIGHTNESS_NIGHT_LEVEL );
-    //Serial.print( "M " ); Serial.println( ledStripBrightnessCurrent ); //xxx
+    ledStripBrightnessCurrent = nightBrightness + static_cast<double>( stripLedBrightness - nightBrightness ) * ( sensorBrightnessAverage - SENSOR_BRIGHTNESS_NIGHT_LEVEL ) / ( SENSOR_BRIGHTNESS_DAY_LEVEL - SENSOR_BRIGHTNESS_NIGHT_LEVEL );
   }
 }
 
+
+uint16_t DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE = 10000;
+unsigned long previousLedStripBrightnessToleranceUpdated = millis();
 void renderStrip() {
+  unsigned long currentMillis = millis();
+  bool toUpdatePreviousLedStripBrightnessTolerance = false;
+
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
     std::vector<uint32_t>& transitionAnimation = transitionAnimations[ledIndex];
@@ -792,41 +782,72 @@ void renderStrip() {
       }
     }
 
-    uint8_t r = (uint8_t)(alarmStatusLedColorToRender >> 16);
-    uint8_t g = (uint8_t)(alarmStatusLedColorToRender >> 8);
-    uint8_t b = (uint8_t)alarmStatusLedColorToRender;
+    uint8_t r_new = (uint8_t)(alarmStatusLedColorToRender >> 16);
+    uint8_t g_new = (uint8_t)(alarmStatusLedColorToRender >> 8);
+    uint8_t b_new = (uint8_t)alarmStatusLedColorToRender;
     if( alarmStatusLedColorToRender != 0 ) {
       if( stripPartyMode ) {
         uint16_t h = 0; uint8_t s = 0, v = 0;
-        rgbToHsv( r, g ,b, h, s, v );
+        rgbToHsv( r_new, g_new, b_new, h, s, v );
         if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
-          hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
+          hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r_new, g_new, b_new );
         } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
-          hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r, g, b );
+          hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r_new, g_new, b_new );
         }
       }
+      
       double ledStripBrightness = ledStripBrightnessCurrent;
       if( isNightModeTest ) {
         double newLedStripBrightness = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
         ledStripBrightness = newLedStripBrightness;
       }
-      uint8_t r_new = round( ledStripBrightness * r / 255 );
-      uint8_t g_new = round( ledStripBrightness * g / 255 );
-      uint8_t b_new = round( ledStripBrightness * b / 255 );
-      if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
-        r = r_new;
-        g = g_new;
-        b = b_new;
+      uint8_t r = floor( ledStripBrightness * r_new / 255 );
+      uint8_t g = floor( ledStripBrightness * g_new / 255 );
+      uint8_t b = floor( ledStripBrightness * b_new / 255 );
+      if( r >= 1 || g >= 1 || b >= 1 ) {
+        r_new = r;
+        g_new = g;
+        b_new = b;
       } else {
-        uint8_t maxValue = max( r, g, b );
-        r = r == maxValue ? 1 : r_new;
-        g = g == maxValue ? 1 : g_new;
-        b = b == maxValue ? 1 : b_new;
+        uint8_t maxValue = max( r_new, g_new, b_new );
+        r_new = r_new == maxValue ? 1 : r;
+        g_new = g_new == maxValue ? 1 : g;
+        b_new = b_new == maxValue ? 1 : b;
       }
     }
-    alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r, g, b);
+
+    if( !stripPartyMode && !isNightModeTest ) { //should prevent map from led brightness undecisiveness (colors that change by 1 with respect to room luminance hovering at specific levels)
+      if( calculateDiffMillis( previousLedStripBrightnessToleranceUpdated, currentMillis ) < DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE ) {
+        uint32_t oldColor = strip.getPixelColor( alarmStatusLedIndex );
+        uint8_t r_old = (uint8_t)(oldColor >> 16);
+        uint8_t g_old = (uint8_t)(oldColor >> 8);
+        uint8_t b_old = (uint8_t)oldColor;
+
+        uint8_t r_diff = r_new > r_old ? r_new - r_old : r_old - r_new;
+        uint8_t g_diff = g_new > g_old ? g_new - g_old : g_old - g_new;
+        uint8_t b_diff = b_new > b_old ? b_new - b_old : b_old - b_new;
+        uint8_t diffTolerance = 1;
+
+        if( ( r_old != 0 || g_old != 0 || b_old != 0 ) && ( r_new != 0 || g_new != 0 || b_new != 0 ) && ( r_diff != 0 || g_diff != 0 || b_diff != 0 ) && ( r_diff <= diffTolerance && g_diff <= diffTolerance && b_diff <= diffTolerance ) && ( r_diff + g_diff + b_diff ) < ( 2 * diffTolerance ) ) {
+          r_new = r_old;
+          g_new = g_old;
+          b_new = b_old;
+        } else {
+          toUpdatePreviousLedStripBrightnessTolerance = true;
+        }
+      } else {
+        toUpdatePreviousLedStripBrightnessTolerance = true;
+      }
+    }
+
+    alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r_new, g_new, b_new);
     strip.setPixelColor( alarmStatusLedIndex, alarmStatusLedColorToRender );
   }
+
+  if( toUpdatePreviousLedStripBrightnessTolerance ) {
+    previousLedStripBrightnessToleranceUpdated = currentMillis;
+  }
+
   if( stripPartyMode ) {
     uint16_t stripPartyModeHueChange = ( 360 * DELAY_DISPLAY_ANIMATION / 60000 ) % 360;
     if( stripPartyModeHueChange == 0 ) stripPartyModeHueChange = 1;
@@ -878,9 +899,9 @@ bool setStripStatus() {
       double newLedStripBrightness = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
       ledStripBrightness = newLedStripBrightness;
     }
-    uint8_t r_new = round( ledStripBrightness * r / 255 );
-    uint8_t g_new = round( ledStripBrightness * g / 255 );
-    uint8_t b_new = round( ledStripBrightness * b / 255 );
+    uint8_t r_new = floor( ledStripBrightness * r / 255 );
+    uint8_t g_new = floor( ledStripBrightness * g / 255 );
+    uint8_t b_new = floor( ledStripBrightness * b / 255 );
     if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
       r = r_new;
       g = g_new;
@@ -2610,6 +2631,7 @@ void handleWebServerPost() {
   if( isStripStatusRerenderRequired && !isStripRerenderRequired ) {
     renderStripStatus();
   } else if( isStripRerenderRequired ) {
+    previousLedStripBrightnessToleranceUpdated = previousLedStripBrightnessToleranceUpdated - DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE;
     renderStrip();
   }
 
@@ -2913,9 +2935,9 @@ void loop() {
   }
   wifiWebServer.handleClient();
 
-  if( isFirstLoopRun || ( calculateDiffMillis( previousMillisBrightnessUpdatedCheck, millis() ) >= DELAY_BRIGHTNESS_UPDATE_CHECK ) ) {
+  if( isFirstLoopRun || ( calculateDiffMillis( previousMillisSensorBrightnessCheck, millis() ) >= DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK ) ) {
     calculateLedStripBrightness();
-    previousMillisBrightnessUpdatedCheck = millis();
+    previousMillisSensorBrightnessCheck = millis();
   }
 
   if( isApInitialized && ( calculateDiffMillis( apStartedMillis, millis() ) >= TIMEOUT_AP ) ) {
