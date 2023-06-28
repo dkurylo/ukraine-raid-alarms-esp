@@ -775,16 +775,16 @@ std::vector<uint8_t> getRequestedColor( std::vector<uint8_t> color, double brigh
 
 std::vector<uint8_t> previousAlarmStatusColorActive = { 0, 0, 0 };
 std::vector<uint8_t> previousAlarmStatusColorInactive = { 0, 0, 0 };
-uint16_t DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE = 10000;
+uint16_t DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE_MILLIS = 10000;
 unsigned long previousStripLedBrightnessToleranceUpdatedMillis = millis();
 void renderStrip() {
   unsigned long currentMillis = millis();
-  bool updatePreviousStripLedBrightnessToleranceMillis = false;
+  bool updatePreviousStripLedBrightnessTolerance = false;
   std::vector<uint8_t> currentAlarmStatusColorActive = getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent );
   std::vector<uint8_t> currentAlarmStatusColorInactive = getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent );
   
   if( !stripPartyMode && !isNightModeTest ) { //should prevent map from led brightness undecisiveness (colors that change by 1 with respect to room luminance hovering at specific levels)
-    if( calculateDiffMillis( previousStripLedBrightnessToleranceUpdatedMillis, currentMillis ) < DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE ) {
+    if( calculateDiffMillis( previousStripLedBrightnessToleranceUpdatedMillis, currentMillis ) < DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE_MILLIS ) {
       uint8_t r_old, g_old, b_old, r_new, g_new, b_new, r_diff, g_diff, b_diff;
       uint8_t diffTolerance = 1;
 
@@ -801,7 +801,7 @@ void renderStrip() {
         currentAlarmStatusColorActive = { r_old, g_old, b_old };
       } else {
         previousAlarmStatusColorActive = currentAlarmStatusColorActive;
-        updatePreviousStripLedBrightnessToleranceMillis = true;
+        updatePreviousStripLedBrightnessTolerance = true;
       }
 
       r_old = previousAlarmStatusColorInactive[0];
@@ -817,17 +817,17 @@ void renderStrip() {
         currentAlarmStatusColorInactive = { r_old, g_old, b_old };
       } else {
         previousAlarmStatusColorInactive = currentAlarmStatusColorInactive;
-        updatePreviousStripLedBrightnessToleranceMillis = true;
+        updatePreviousStripLedBrightnessTolerance = true;
       }
 
     } else {
       previousAlarmStatusColorActive = currentAlarmStatusColorActive;
       previousAlarmStatusColorInactive = currentAlarmStatusColorInactive;
-      updatePreviousStripLedBrightnessToleranceMillis = true;
+      updatePreviousStripLedBrightnessTolerance = true;
     }
   }
 
-  if( updatePreviousStripLedBrightnessToleranceMillis ) {
+  if( updatePreviousStripLedBrightnessTolerance ) {
     previousStripLedBrightnessToleranceUpdatedMillis = currentMillis;
   }
 
@@ -2671,7 +2671,7 @@ void handleWebServerPost() {
   if( isStripStatusRerenderRequired && !isStripRerenderRequired ) {
     renderStripStatus();
   } else if( isStripRerenderRequired ) {
-    previousStripLedBrightnessToleranceUpdatedMillis = previousStripLedBrightnessToleranceUpdatedMillis - DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE;
+    previousStripLedBrightnessToleranceUpdatedMillis = previousStripLedBrightnessToleranceUpdatedMillis - DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE_MILLIS;
     renderStrip();
   }
 
