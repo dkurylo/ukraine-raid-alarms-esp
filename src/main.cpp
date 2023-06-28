@@ -62,8 +62,8 @@ const uint8_t STRIP_STATUS_SERVER_COMMUNICATION_ERROR = 7;
 const uint8_t STRIP_STATUS_PROCESSING_ERROR = 8;
 
 //addressable led strip raid alarm region status colors confg
-const uint32_t RAID_ALARM_STATUS_COLOR_UNKNOWN = Adafruit_NeoPixel::Color(0, 0, 0);
-const uint32_t RAID_ALARM_STATUS_COLOR_BLACK = Adafruit_NeoPixel::Color(0, 0, 0);
+const std::vector<uint8_t> RAID_ALARM_STATUS_COLOR_UNKNOWN = { 0, 0, 0 };
+const std::vector<uint8_t> RAID_ALARM_STATUS_COLOR_BLACK = { 0, 0, 0 };
 
 //internal on-board status led config
 #ifdef ESP8266
@@ -293,13 +293,13 @@ const int8_t RAID_ALARM_STATUS_UNINITIALIZED = -1;
 const int8_t RAID_ALARM_STATUS_INACTIVE = 0;
 const int8_t RAID_ALARM_STATUS_ACTIVE = 1;
 
-uint32_t raidAlarmStatusColorInactive = Adafruit_NeoPixel::Color(15, 143, 0);
-uint32_t raidAlarmStatusColorActive = Adafruit_NeoPixel::Color(159, 15, 0);
-uint32_t raidAlarmStatusColorInactiveBlink = Adafruit_NeoPixel::Color(191, 191, 0);
-uint32_t raidAlarmStatusColorActiveBlink = Adafruit_NeoPixel::Color(255, 255, 0);
+std::vector<uint8_t> raidAlarmStatusColorInactive = { 15, 143, 0 };
+std::vector<uint8_t> raidAlarmStatusColorActive = { 159, 15, 0 };
+std::vector<uint8_t> raidAlarmStatusColorInactiveBlink = { 191, 191, 0 };
+std::vector<uint8_t> raidAlarmStatusColorActiveBlink = { 255, 255, 0 };
 
 std::map<const char*, int8_t> regionToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
-std::vector<std::vector<uint32_t>> transitionAnimations; //populated automatically
+std::vector<std::vector<std::vector<uint8_t>>> transitionAnimations; //populated automatically
 uint8_t currentRaidAlarmServer = VK_RAID_ALARM_SERVER;
 
 #ifdef ESP8266
@@ -352,7 +352,7 @@ void initAlarmStatus() {
     for( const auto& region : allRegions[ledIndex] ) {
       regionToRaidAlarmStatus[region] = RAID_ALARM_STATUS_UNINITIALIZED;
     }
-    transitionAnimations.push_back( std::vector<uint32_t>() );
+    transitionAnimations.push_back( std::vector<std::vector<uint8_t>>() );
   }
   uaResetLastActionHash();
 }
@@ -382,21 +382,24 @@ unsigned long calculateDiffMillis( unsigned long startMillis, unsigned long endM
   }
 }
 
-String getHexColor( uint32_t color ) {
-  uint8_t red = (color >> 16) & 0xFF;
-  uint8_t green = (color >> 8) & 0xFF;
-  uint8_t blue = color & 0xFF;
+String getHexColor( std::vector<uint8_t> color ) {
+  uint8_t r = color[0];
+  uint8_t g = color[1];
+  uint8_t b = color[2];
   char* hexString = new char[8];
-  sprintf( hexString, "#%02X%02X%02X", red, green, blue );
+  sprintf( hexString, "#%02X%02X%02X", r, g, b );
   String stringHexString = String(hexString);
   delete[] hexString;
   return stringHexString;
 }
 
-uint32_t getUint32Color( String hexColor ) {
+std::vector<uint8_t> getVectorColor( String hexColor ) {
   uint32_t colorValue = 0;
   sscanf( hexColor.c_str(), "#%06x", &colorValue );
-  return colorValue;
+  uint8_t r = static_cast<uint8_t>((colorValue >> 16) & 0xFF);
+  uint8_t g = static_cast<uint8_t>((colorValue >> 8) & 0xFF);
+  uint8_t b = static_cast<uint8_t>(colorValue & 0xFF);
+  return { r, g, b };
 }
 
 void rgbToHsv( uint8_t r, uint8_t g, uint8_t b, uint16_t& h, uint8_t& s, uint8_t& v ) {
@@ -609,23 +612,23 @@ bool writeEepromBoolValue( const uint16_t& eepromIndex, bool newValue ) {
   return eepromWritten;
 }
 
-uint32_t readEepromColor( const uint16_t& eepromIndex, uint32_t& variableWithValue, bool doApplyValue ) {
+std::vector<uint8_t> readEepromColor( const uint16_t& eepromIndex, std::vector<uint8_t>& variableWithValue, bool doApplyValue ) {
   uint8_t r = EEPROM.read( eepromIndex     );
   uint8_t g = EEPROM.read( eepromIndex + 1 );
   uint8_t b = EEPROM.read( eepromIndex + 2 );
-  uint32_t color = (r << 16) | (g << 8) | b;
+  std::vector<uint8_t> color = { r, g, b };
   if( doApplyValue ) {
     variableWithValue = color;
   }
   return color;
 }
 
-bool writeEepromColor( const uint16_t& eepromIndex, uint32_t newValue ) {
+bool writeEepromColor( const uint16_t& eepromIndex, std::vector<uint8_t> newValue ) {
   bool eepromWritten = false;
   if( readEepromColor( eepromIndex, newValue, false ) != newValue ) {
-    EEPROM.write( eepromIndex,     (newValue >> 16) & 0xFF );
-    EEPROM.write( eepromIndex + 1, (newValue >>  8) & 0xFF );
-    EEPROM.write( eepromIndex + 2,  newValue        & 0xFF );
+    EEPROM.write( eepromIndex,     newValue[0] );
+    EEPROM.write( eepromIndex + 1, newValue[1] );
+    EEPROM.write( eepromIndex + 2, newValue[2] );
     eepromWritten = true;
   }
   if( eepromWritten ) {
@@ -749,23 +752,95 @@ void calculateLedStripBrightness() {
   }
 }
 
+std::vector<uint8_t> getRequestedColor( std::vector<uint8_t> color, double brightness ) {
+  uint8_t r_req = color[0];
+  uint8_t g_req = color[1];
+  uint8_t b_req = color[2];
 
+  uint8_t r = round( brightness * r_req / 255 );
+  uint8_t g = round( brightness * g_req / 255 );
+  uint8_t b = round( brightness * b_req / 255 );
+  if( r >= 1 || g >= 1 || b >= 1 ) {
+    r_req = r;
+    g_req = g;
+    b_req = b;
+  } else {
+    uint8_t maxValue = max( r_req, g_req, b_req );
+    r_req = r_req == maxValue ? 1 : r;
+    g_req = g_req == maxValue ? 1 : g;
+    b_req = b_req == maxValue ? 1 : b;
+  }
+  return { r_req, g_req, b_req };
+}
+
+std::vector<uint8_t> previousAlarmStatusColorActive = { 0, 0, 0 };
+std::vector<uint8_t> previousAlarmStatusColorInactive = { 0, 0, 0 };
 uint16_t DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE = 10000;
-unsigned long previousLedStripBrightnessToleranceUpdated = millis();
+unsigned long previousStripLedBrightnessToleranceUpdatedMillis = millis();
 void renderStrip() {
   unsigned long currentMillis = millis();
-  bool toUpdatePreviousLedStripBrightnessTolerance = false;
+  bool updatePreviousStripLedBrightnessToleranceMillis = false;
+  std::vector<uint8_t> currentAlarmStatusColorActive = getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent );
+  std::vector<uint8_t> currentAlarmStatusColorInactive = getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent );
+  
+  if( !stripPartyMode && !isNightModeTest ) { //should prevent map from led brightness undecisiveness (colors that change by 1 with respect to room luminance hovering at specific levels)
+    if( calculateDiffMillis( previousStripLedBrightnessToleranceUpdatedMillis, currentMillis ) < DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE ) {
+      uint8_t r_old, g_old, b_old, r_new, g_new, b_new, r_diff, g_diff, b_diff;
+      uint8_t diffTolerance = 1;
+
+      r_old = previousAlarmStatusColorActive[0];
+      g_old = previousAlarmStatusColorActive[1];
+      b_old = previousAlarmStatusColorActive[2];
+      r_new = currentAlarmStatusColorActive[0];
+      g_new = currentAlarmStatusColorActive[1];
+      b_new = currentAlarmStatusColorActive[2];
+      r_diff = r_new > r_old ? r_new - r_old : r_old - r_new;
+      g_diff = g_new > g_old ? g_new - g_old : g_old - g_new;
+      b_diff = b_new > b_old ? b_new - b_old : b_old - b_new;
+      if( ( r_old != 0 || g_old != 0 || b_old != 0 ) && ( r_new != 0 || g_new != 0 || b_new != 0 ) && ( r_diff != 0 || g_diff != 0 || b_diff != 0 ) && ( r_diff <= diffTolerance && g_diff <= diffTolerance && b_diff <= diffTolerance ) && ( r_diff + g_diff + b_diff ) < ( 2 * diffTolerance ) ) {
+        currentAlarmStatusColorActive = { r_old, g_old, b_old };
+      } else {
+        previousAlarmStatusColorActive = currentAlarmStatusColorActive;
+        updatePreviousStripLedBrightnessToleranceMillis = true;
+      }
+
+      r_old = previousAlarmStatusColorInactive[0];
+      g_old = previousAlarmStatusColorInactive[1];
+      b_old = previousAlarmStatusColorInactive[2];
+      r_new = currentAlarmStatusColorInactive[0];
+      g_new = currentAlarmStatusColorInactive[1];
+      b_new = currentAlarmStatusColorInactive[2];
+      r_diff = r_new > r_old ? r_new - r_old : r_old - r_new;
+      g_diff = g_new > g_old ? g_new - g_old : g_old - g_new;
+      b_diff = b_new > b_old ? b_new - b_old : b_old - b_new;
+      if( ( r_old != 0 || g_old != 0 || b_old != 0 ) && ( r_new != 0 || g_new != 0 || b_new != 0 ) && ( r_diff != 0 || g_diff != 0 || b_diff != 0 ) && ( r_diff <= diffTolerance && g_diff <= diffTolerance && b_diff <= diffTolerance ) && ( r_diff + g_diff + b_diff ) < ( 2 * diffTolerance ) ) {
+        currentAlarmStatusColorInactive = { r_old, g_old, b_old };
+      } else {
+        previousAlarmStatusColorInactive = currentAlarmStatusColorInactive;
+        updatePreviousStripLedBrightnessToleranceMillis = true;
+      }
+
+    } else {
+      previousAlarmStatusColorActive = currentAlarmStatusColorActive;
+      previousAlarmStatusColorInactive = currentAlarmStatusColorInactive;
+      updatePreviousStripLedBrightnessToleranceMillis = true;
+    }
+  }
+
+  if( updatePreviousStripLedBrightnessToleranceMillis ) {
+    previousStripLedBrightnessToleranceUpdatedMillis = currentMillis;
+  }
 
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    std::vector<uint32_t>& transitionAnimation = transitionAnimations[ledIndex];
+    std::vector<std::vector<uint8_t>>& transitionAnimation = transitionAnimations[ledIndex];
     uint8_t alarmStatusLedIndex = ( ledIndex < STRIP_STATUS_LED_INDEX || STRIP_STATUS_LED_INDEX < 0 ) ? ledIndex : ledIndex + 1;
-    uint32_t alarmStatusLedColorToRender = RAID_ALARM_STATUS_COLOR_UNKNOWN;
+    std::vector<uint8_t> alarmStatusColorToDisplay = RAID_ALARM_STATUS_COLOR_UNKNOWN;
     int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
     if( transitionAnimation.size() > 0 ) {
-      uint32_t nextAnimationColor = transitionAnimation.front();
+      std::vector<uint8_t> nextAnimationColor = transitionAnimation.front();
       transitionAnimation.erase( transitionAnimation.begin() );
-      alarmStatusLedColorToRender = nextAnimationColor;
+      alarmStatusColorToDisplay = nextAnimationColor;
     } else {
       for( const auto& region : allRegions[ledIndex] ) {
         int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
@@ -774,78 +849,43 @@ void renderStrip() {
         alarmStatus = regionLedAlarmStatus;
       }
       if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
-        alarmStatusLedColorToRender = showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive;
+        alarmStatusColorToDisplay = showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive;
       } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
-        alarmStatusLedColorToRender = raidAlarmStatusColorActive;
+        alarmStatusColorToDisplay = raidAlarmStatusColorActive;
       } else {
-        alarmStatusLedColorToRender = RAID_ALARM_STATUS_COLOR_UNKNOWN;
+        alarmStatusColorToDisplay = RAID_ALARM_STATUS_COLOR_UNKNOWN;
       }
     }
 
-    uint8_t r_new = (uint8_t)(alarmStatusLedColorToRender >> 16);
-    uint8_t g_new = (uint8_t)(alarmStatusLedColorToRender >> 8);
-    uint8_t b_new = (uint8_t)alarmStatusLedColorToRender;
-    if( alarmStatusLedColorToRender != 0 ) {
-      if( stripPartyMode ) {
-        uint16_t h = 0; uint8_t s = 0, v = 0;
-        rgbToHsv( r_new, g_new, b_new, h, s, v );
-        if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
-          hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r_new, g_new, b_new );
-        } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
-          hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, r_new, g_new, b_new );
-        }
-      }
-      
-      double ledStripBrightness = ledStripBrightnessCurrent;
-      if( isNightModeTest ) {
-        double newLedStripBrightness = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
-        ledStripBrightness = newLedStripBrightness;
-      }
-      uint8_t r = floor( ledStripBrightness * r_new / 255 );
-      uint8_t g = floor( ledStripBrightness * g_new / 255 );
-      uint8_t b = floor( ledStripBrightness * b_new / 255 );
-      if( r >= 1 || g >= 1 || b >= 1 ) {
-        r_new = r;
-        g_new = g;
-        b_new = b;
-      } else {
-        uint8_t maxValue = max( r_new, g_new, b_new );
-        r_new = r_new == maxValue ? 1 : r;
-        g_new = g_new == maxValue ? 1 : g;
-        b_new = b_new == maxValue ? 1 : b;
+    if( stripPartyMode ) {
+      uint16_t h = 0; uint8_t s = 0, v = 0;
+      rgbToHsv( alarmStatusColorToDisplay[0], alarmStatusColorToDisplay[1], alarmStatusColorToDisplay[2], h, s, v );
+      if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
+        hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, alarmStatusColorToDisplay[0], alarmStatusColorToDisplay[1], alarmStatusColorToDisplay[2] );
+      } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
+        hsvToRgb( ( h + stripPartyModeHue ) % 360, s, v, alarmStatusColorToDisplay[0], alarmStatusColorToDisplay[1], alarmStatusColorToDisplay[2] );
       }
     }
 
-    if( !stripPartyMode && !isNightModeTest ) { //should prevent map from led brightness undecisiveness (colors that change by 1 with respect to room luminance hovering at specific levels)
-      if( calculateDiffMillis( previousLedStripBrightnessToleranceUpdated, currentMillis ) < DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE ) {
-        uint32_t oldColor = strip.getPixelColor( alarmStatusLedIndex );
-        uint8_t r_old = (uint8_t)(oldColor >> 16);
-        uint8_t g_old = (uint8_t)(oldColor >> 8);
-        uint8_t b_old = (uint8_t)oldColor;
-
-        uint8_t r_diff = r_new > r_old ? r_new - r_old : r_old - r_new;
-        uint8_t g_diff = g_new > g_old ? g_new - g_old : g_old - g_new;
-        uint8_t b_diff = b_new > b_old ? b_new - b_old : b_old - b_new;
-        uint8_t diffTolerance = 1;
-
-        if( ( r_old != 0 || g_old != 0 || b_old != 0 ) && ( r_new != 0 || g_new != 0 || b_new != 0 ) && ( r_diff != 0 || g_diff != 0 || b_diff != 0 ) && ( r_diff <= diffTolerance && g_diff <= diffTolerance && b_diff <= diffTolerance ) && ( r_diff + g_diff + b_diff ) < ( 2 * diffTolerance ) ) {
-          r_new = r_old;
-          g_new = g_old;
-          b_new = b_old;
-        } else {
-          toUpdatePreviousLedStripBrightnessTolerance = true;
-        }
-      } else {
-        toUpdatePreviousLedStripBrightnessTolerance = true;
-      }
+    double stripLedBrightnessToDisplay = ledStripBrightnessCurrent;
+    if( isNightModeTest ) {
+      stripLedBrightnessToDisplay = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
+      alarmStatusColorToDisplay = getRequestedColor( alarmStatusColorToDisplay, stripLedBrightnessToDisplay );
     }
 
-    alarmStatusLedColorToRender = Adafruit_NeoPixel::Color(r_new, g_new, b_new);
-    strip.setPixelColor( alarmStatusLedIndex, alarmStatusLedColorToRender );
-  }
+    if( !stripPartyMode ) {
+      if( alarmStatusColorToDisplay == raidAlarmStatusColorActive ) {
+        alarmStatusColorToDisplay = currentAlarmStatusColorActive;
+      } else if( alarmStatusColorToDisplay == raidAlarmStatusColorInactive ) {
+        alarmStatusColorToDisplay = currentAlarmStatusColorInactive;
+      } else {
+        alarmStatusColorToDisplay = getRequestedColor( alarmStatusColorToDisplay, stripLedBrightnessToDisplay );
+      }
+    } else {
+      alarmStatusColorToDisplay = getRequestedColor( alarmStatusColorToDisplay, stripLedBrightnessToDisplay );
+    }
 
-  if( toUpdatePreviousLedStripBrightnessTolerance ) {
-    previousLedStripBrightnessToleranceUpdated = currentMillis;
+    strip.setPixelColor( alarmStatusLedIndex, alarmStatusColorToDisplay[0], alarmStatusColorToDisplay[1], alarmStatusColorToDisplay[2] );
   }
 
   if( stripPartyMode ) {
@@ -859,49 +899,49 @@ void renderStrip() {
 
 bool setStripStatus() {
   if( STRIP_STATUS_LED_INDEX < 0 ) return false;
-  uint32_t ledColor = STRIP_STATUS_BLACK;
+  std::vector<uint8_t> ledColor = RAID_ALARM_STATUS_COLOR_BLACK;
   bool dimLedAtNight = false;
 
   if( isApInitialized ) {
-    ledColor = Adafruit_NeoPixel::Color(9, 0, 9);
+    ledColor = { 9, 0, 9 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_WIFI_CONNECTING ) {
-    ledColor = Adafruit_NeoPixel::Color(0, 0, 15);
+    ledColor = { 0, 0, 15 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_WIFI_ERROR ) {
-    ledColor = Adafruit_NeoPixel::Color(0, 9, 9);
+    ledColor = { 0, 9, 9 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_SERVER_CONNECTION_ERROR ) {
-    ledColor = Adafruit_NeoPixel::Color(0, 15, 0);
+    ledColor = { 0, 15, 0 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_SERVER_COMMUNICATION_ERROR ) {
-    ledColor = Adafruit_NeoPixel::Color(9, 9, 0);
+    ledColor = { 9, 9, 0 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING_ERROR ) {
-    ledColor = Adafruit_NeoPixel::Color(15, 0, 0);
+    ledColor = { 15, 0, 0 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING ) {
-    ledColor = Adafruit_NeoPixel::Color(0, 0, 0);
+    ledColor = { 0, 0, 0 };
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_BLACK || ( !showStripIdleStatusLed && statusLedColor == STRIP_STATUS_OK ) ) {
-    ledColor = Adafruit_NeoPixel::Color(0, 0, 0);
+    ledColor = { 0, 0, 0 };
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_OK ) {
-    ledColor = Adafruit_NeoPixel::Color(1, 1, 1);
+    ledColor = { 1, 1, 1 };
     dimLedAtNight = false;
   }
 
   if( dimLedAtNight ) {
-    uint8_t r = (uint8_t)(ledColor >> 16), g = (uint8_t)(ledColor >> 8), b = (uint8_t)ledColor;
+    uint8_t r = ledColor[0], g = ledColor[1], b = ledColor[2];
 
     double ledStripBrightness = ledStripBrightnessCurrent;
     if( isNightModeTest ) {
       double newLedStripBrightness = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
       ledStripBrightness = newLedStripBrightness;
     }
-    uint8_t r_new = floor( ledStripBrightness * r / 255 );
-    uint8_t g_new = floor( ledStripBrightness * g / 255 );
-    uint8_t b_new = floor( ledStripBrightness * b / 255 );
+    uint8_t r_new = round( ledStripBrightness * r / 255 );
+    uint8_t g_new = round( ledStripBrightness * g / 255 );
+    uint8_t b_new = round( ledStripBrightness * b / 255 );
     if( r_new >= 1 || g_new >= 1 || b_new >= 1 ) {
       r = r_new;
       g = g_new;
@@ -912,10 +952,10 @@ bool setStripStatus() {
       g = g == maxValue ? 1 : g_new;
       b = b == maxValue ? 1 : b_new;
     }
-    ledColor = Adafruit_NeoPixel::Color(r, g, b);
+    ledColor = { r, g, b };
   }
 
-  strip.setPixelColor( STRIP_STATUS_LED_INDEX, ledColor );
+  strip.setPixelColor( STRIP_STATUS_LED_INDEX, ledColor[0], ledColor[1], ledColor[2] );
   return true;  
 }
 
@@ -1111,7 +1151,7 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
 
   bool isStatusChanged = newAlarmStatusForRegionGroup != oldAlarmStatusForRegionGroup;
   if( oldAlarmStatusForRegionGroup != RAID_ALARM_STATUS_UNINITIALIZED && isStatusChanged ) {
-    std::vector<uint32_t>& transitionAnimation = transitionAnimations[ledIndex];
+    std::vector<std::vector<uint8_t>>& transitionAnimation = transitionAnimations[ledIndex];
     if( isAlarmEnabled ) {
       transitionAnimation.insert(
         transitionAnimation.end(),
@@ -2451,16 +2491,16 @@ void handleWebServerPost() {
   String htmlPageAiRaidAlarmServerApiKeyReceived = wifiWebServer.arg( HTML_PAGE_RAID_SERVER_AI_KEY_NAME );
 
   String htmlPageAlarmOnColorReceived = wifiWebServer.arg( HTML_PAGE_ALARM_ON_NAME );
-  uint32_t alarmOnColorReceived = getUint32Color( htmlPageAlarmOnColorReceived );
+  std::vector<uint8_t> alarmOnColorReceived = getVectorColor( htmlPageAlarmOnColorReceived );
 
   String htmlPageAlarmOffColorReceived = wifiWebServer.arg( HTML_PAGE_ALARM_OFF_NAME );
-  uint32_t alarmOffColorReceived = getUint32Color( htmlPageAlarmOffColorReceived );
+  std::vector<uint8_t> alarmOffColorReceived = getVectorColor( htmlPageAlarmOffColorReceived );
 
   String htmlPageAlarmOffOnColorReceived = wifiWebServer.arg( HTML_PAGE_ALARM_OFFON_NAME );
-  uint32_t alarmOffOnColorReceived = getUint32Color( htmlPageAlarmOffOnColorReceived );
+  std::vector<uint8_t> alarmOffOnColorReceived = getVectorColor( htmlPageAlarmOffOnColorReceived );
 
   String htmlPageAlarmOnOffColorReceived = wifiWebServer.arg( HTML_PAGE_ALARM_ONOFF_NAME );
-  uint32_t alarmOnOffColorReceived = getUint32Color( htmlPageAlarmOnOffColorReceived );
+  std::vector<uint8_t> alarmOnOffColorReceived = getVectorColor( htmlPageAlarmOnOffColorReceived );
 
   String htmlPageShowOnlyActiveAlarmsCheckboxReceived = wifiWebServer.arg( HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME );
   bool showOnlyActiveAlarmsReceived = false;
@@ -2631,7 +2671,7 @@ void handleWebServerPost() {
   if( isStripStatusRerenderRequired && !isStripRerenderRequired ) {
     renderStripStatus();
   } else if( isStripRerenderRequired ) {
-    previousLedStripBrightnessToleranceUpdated = previousLedStripBrightnessToleranceUpdated - DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE;
+    previousStripLedBrightnessToleranceUpdatedMillis = previousStripLedBrightnessToleranceUpdatedMillis - DELAY_LED_STRIP_BRIGHTNESS_TOLERANCE;
     renderStrip();
   }
 
@@ -2666,13 +2706,13 @@ void handleWebServerGetTestLeds() {
   wifiWebServer.send( 200, getContentType( F("html") ), content );
   for( uint8_t ledIndex = 0; ledIndex < STRIP_LED_COUNT; ledIndex++ ) {
     uint32_t oldColor = strip.getPixelColor( ledIndex );
-    strip.setPixelColor( ledIndex, Adafruit_NeoPixel::Color(0, 0, 0) );
+    strip.setPixelColor( ledIndex, 0, 0, 0 );
     strip.show();
     delay( 150 );
-    strip.setPixelColor( ledIndex, Adafruit_NeoPixel::Color(255, 255, 255) );
+    strip.setPixelColor( ledIndex, 255, 255, 255 );
     strip.show();
     delay( 700 );
-    strip.setPixelColor( ledIndex, Adafruit_NeoPixel::Color(0, 0, 0) );
+    strip.setPixelColor( ledIndex, 0, 0, 0 );
     strip.show();
     delay( 150 );
     strip.setPixelColor( ledIndex, oldColor );
