@@ -263,6 +263,18 @@ const std::vector<std::vector<const char*>> getAiRegions() {
   return result;
 }
 
+//adjacent region for alertness functionality
+const std::vector<std::vector<uint8_t>> getRegionPairs() {
+  const std::vector<std::vector<uint8_t>> regionPairs = {
+    {  0,  1 }, {  0,  6 }, {  1,  2 }, {  1,  3 }, {  1,  5 }, {  1,  6 }, {  2,  3 }, {  3,  4 }, {  3,  5 }, {  3,  9 },
+    {  4,  5 }, {  4,  7 }, {  4,  8 }, {  4,  9 }, {  5,  6 }, {  5,  7 }, {  6,  7 }, {  7,  8 }, {  8,  9 }, {  8, 10 },
+    {  8, 19 }, {  8, 20 }, {  8, 22 }, {  9, 10 }, { 10, 11 }, { 10, 18 }, { 10, 19 }, { 11, 12 }, { 11, 18 }, { 12, 13 },
+    { 12, 18 }, { 13, 14 }, { 13, 15 }, { 13, 17 }, { 13, 18 }, { 14, 15 }, { 15, 16 }, { 15, 17 }, { 16, 17 }, { 16, 24 },
+    { 17, 18 }, { 17, 20 }, { 17, 21 }, { 17, 24 }, { 18, 19 }, { 18, 20 }, { 19, 20 }, { 20, 21 }, { 20, 22 }, { 21, 22 },
+    { 21, 24 }, { 23, 24 }
+  };
+  return regionPairs;
+}
 
 //connection settings
 const uint16_t TIMEOUT_HTTP_CONNECTION = 10000;
@@ -283,11 +295,11 @@ uint8_t stripLedBrightness = 63; //out of 255
 uint8_t statusLedColor = STRIP_STATUS_OK;
 
 uint8_t stripLedBrightnessDimmingNight = 7;
-//bool isNightMode = false;
-//bool isUserAwake = true;
 bool isNightModeTest = false;
 bool stripPartyMode = false;
 uint16_t stripPartyModeHue = 0;
+
+int8_t alertLevelLedIndex = -1;
 
 const int8_t RAID_ALARM_STATUS_UNINITIALIZED = -1;
 const int8_t RAID_ALARM_STATUS_INACTIVE = 0;
@@ -298,7 +310,7 @@ std::vector<uint8_t> raidAlarmStatusColorActive = { 159, 15, 0 };
 std::vector<uint8_t> raidAlarmStatusColorInactiveBlink = { 191, 191, 0 };
 std::vector<uint8_t> raidAlarmStatusColorActiveBlink = { 255, 255, 0 };
 
-std::map<const char*, int8_t> regionToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
+std::map<const char*, int8_t> regionNameToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
 std::vector<std::vector<std::vector<uint8_t>>> transitionAnimations; //populated automatically
 uint8_t currentRaidAlarmServer = VK_RAID_ALARM_SERVER;
 
@@ -315,9 +327,6 @@ WiFiClient wiFiClient; //used for AC; UA, VK and AI use WiFiClientSecure and ini
 //WiFiUDP ntpUdp;
 //NTPClient timeClient(ntpUdp);
 Adafruit_NeoPixel strip(STRIP_LED_COUNT, STRIP_PIN, NEO_GRB + NEO_KHZ800);
-
-
-
 
 
 //init methods
@@ -344,13 +353,24 @@ const std::vector<std::vector<const char*>> getRegions() {
   }
 }
 
+int8_t getRegionStatusByLedIndex( const int8_t& ledIndex, const std::vector<std::vector<const char*>>& allRegions ) {
+  int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
+  for( const auto& regionName : allRegions[ledIndex] ) {
+    int8_t regionAlarmStatus = regionNameToRaidAlarmStatus[regionName];
+    if( regionAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
+    if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
+    alarmStatus = regionAlarmStatus;
+  }
+  return alarmStatus;
+}
+
 void initAlarmStatus() {
-  regionToRaidAlarmStatus.clear();
+  regionNameToRaidAlarmStatus.clear();
   transitionAnimations.clear();
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    for( const auto& region : allRegions[ledIndex] ) {
-      regionToRaidAlarmStatus[region] = RAID_ALARM_STATUS_UNINITIALIZED;
+    for( const auto& regionName : allRegions[ledIndex] ) {
+      regionNameToRaidAlarmStatus[regionName] = RAID_ALARM_STATUS_UNINITIALIZED;
     }
     transitionAnimations.push_back( std::vector<std::vector<uint8_t>>() );
   }
@@ -537,7 +557,8 @@ const uint16_t eepromStripPartyModeIndex = eepromStripLedBrightnessDimmingNightI
 const uint16_t eepromUaRaidAlarmApiKeyIndex = eepromStripPartyModeIndex + 1;
 const uint16_t eepromAcRaidAlarmApiKeyIndex = eepromUaRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
 const uint16_t eepromAiRaidAlarmApiKeyIndex = eepromAcRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
-const uint16_t eepromLastByteIndex = eepromAiRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
+const uint16_t eepromAlertLevelIndex = eepromAiRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
+const uint16_t eepromLastByteIndex = eepromAlertLevelIndex + 1;
 
 const uint16_t EEPROM_ALLOCATED_SIZE = eepromLastByteIndex;
 void initEeprom() {
@@ -570,7 +591,7 @@ bool writeEepromCharArray( const uint16_t& eepromIndex, char* newValue, uint8_t 
   return true;
 }
 
-uint8_t readEepromIntValue( const uint16_t& eepromIndex, uint8_t& variableWithValue, bool doApplyValue ) {
+uint8_t readEepromUintValue( const uint16_t& eepromIndex, uint8_t& variableWithValue, bool doApplyValue ) {
   uint8_t eepromValue = EEPROM.read( eepromIndex );
   if( doApplyValue ) {
     variableWithValue = eepromValue;
@@ -578,7 +599,28 @@ uint8_t readEepromIntValue( const uint16_t& eepromIndex, uint8_t& variableWithVa
   return eepromValue;
 }
 
-bool writeEepromIntValue( const uint16_t& eepromIndex, uint8_t newValue ) {
+bool writeEepromUintValue( const uint16_t& eepromIndex, uint8_t newValue ) {
+  bool eepromWritten = false;
+  if( readEepromUintValue( eepromIndex, newValue, false ) != newValue ) {
+    EEPROM.write( eepromIndex, newValue );
+    eepromWritten = true;
+  }
+  if( eepromWritten ) {
+    EEPROM.commit();
+    delay( 20 );
+  }
+  return eepromWritten;
+}
+
+uint8_t readEepromIntValue( const uint16_t& eepromIndex, int8_t& variableWithValue, bool doApplyValue ) {
+  int8_t eepromValue = EEPROM.read( eepromIndex );
+  if( doApplyValue ) {
+    variableWithValue = eepromValue;
+  }
+  return eepromValue;
+}
+
+bool writeEepromIntValue( const uint16_t& eepromIndex, int8_t newValue ) {
   bool eepromWritten = false;
   if( readEepromIntValue( eepromIndex, newValue, false ) != newValue ) {
     EEPROM.write( eepromIndex, newValue );
@@ -666,37 +708,39 @@ void loadEepromData() {
 
     readEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH, true );
     readEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH, true );
-    readEepromIntValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer, true );
+    readEepromUintValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer, true );
     readEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarms, true );
     readEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripIdleStatusLed, true );
-    readEepromIntValue( eepromStripLedBrightnessIndex, stripLedBrightness, true );
+    readEepromUintValue( eepromStripLedBrightnessIndex, stripLedBrightness, true );
     readEepromColor( eepromAlarmOnColorIndex, raidAlarmStatusColorActive, true );
     readEepromColor( eepromAlarmOffColorIndex, raidAlarmStatusColorInactive, true );
     readEepromColor( eepromAlarmOnOffIndex, raidAlarmStatusColorInactiveBlink, true );
     readEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink, true );
-    readEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight, true );
+    readEepromUintValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight, true );
     readEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode, true );
     readRaidAlarmServerApiKey( -1 );
+    readEepromIntValue( eepromAlertLevelIndex, alertLevelLedIndex, true );
 
   } else { //fill EEPROM with default values when starting the new board
     writeEepromBoolValue( eepromIsNewBoardIndex, false );
 
     writeEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH );
     writeEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH );
-    writeEepromIntValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer );
+    writeEepromUintValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer );
     writeEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarms );
     writeEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripIdleStatusLed );
-    writeEepromIntValue( eepromStripLedBrightnessIndex, stripLedBrightness );
+    writeEepromUintValue( eepromStripLedBrightnessIndex, stripLedBrightness );
     writeEepromColor( eepromAlarmOnColorIndex, raidAlarmStatusColorActive );
     writeEepromColor( eepromAlarmOffColorIndex, raidAlarmStatusColorInactive );
     writeEepromColor( eepromAlarmOnOffIndex, raidAlarmStatusColorInactiveBlink );
     writeEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink );
-    writeEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight );
+    writeEepromUintValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight );
     writeEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode );
     char raidAlarmServerApiKeyEmpty[RAID_ALARM_SERVER_API_KEY_LENGTH] = "";
     writeEepromCharArray( eepromUaRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
     writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
     writeEepromCharArray( eepromAiRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    writeEepromIntValue( eepromAlertLevelIndex, alertLevelLedIndex );
 
     isNewBoard = false;
   }
@@ -726,6 +770,214 @@ void shutdownAccessPoint() {
   dnsServer.stop();
   WiFi.softAPdisconnect( true );
   Serial.println( F(" done") );
+}
+
+
+//beeper functionality
+#define BEEPER_PIN 13
+const bool IS_LOW_LEVEL_BUZZER = true;
+std::vector<std::vector<uint16_t>> beeperBeeps; //0 - time, 1 - status
+
+unsigned long beepingTimeMillis = 0; //indicates when timer started beeping
+bool isBeeping = false; //indicates whether timer is beeping
+
+bool beeperPinStatus = false;
+void startBeeping() {
+  if( beeperPinStatus ) return;
+  Serial.println( "1" );
+  digitalWrite( BEEPER_PIN, IS_LOW_LEVEL_BUZZER ? 0 : 1 );
+  beeperPinStatus = true;
+}
+
+void stopBeeping( bool isInit ) {
+  if( !isInit && !beeperPinStatus ) return;
+  Serial.println( "0" );
+  digitalWrite( BEEPER_PIN, IS_LOW_LEVEL_BUZZER ? 1 : 0 );
+  beeperPinStatus = false;
+}
+
+void stopBeeping() {
+  stopBeeping( false );
+}
+
+void initBeeper() {
+  pinMode( BEEPER_PIN, OUTPUT );
+  stopBeeping( true );
+}
+
+void beeperProcessLoopTick() {
+  unsigned long currentMillis = millis();
+  if( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beeperBeeps[0][0] ) < beeperBeeps[0][0] ) return;
+
+  if( beeperBeeps.empty() || ( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beeperBeeps[0][0] ) >= beeperBeeps[0][0] ) ) {
+    beepingTimeMillis = millis();
+    isBeeping = false;
+    stopBeeping();
+
+    if( beeperBeeps.empty() ) {
+      return;
+    } else {
+      beeperBeeps.erase( beeperBeeps.begin() );
+    }
+  }
+
+  if( !beeperBeeps.empty() && !isBeeping ) {
+    beepingTimeMillis = currentMillis;
+    isBeeping = true;
+    if( beeperBeeps[0][1] != 0 ) {
+      startBeeping();
+    }
+  }
+}
+
+
+//alertness functionality
+int8_t alertLevel = -1;
+void signalAlertnessLevelIncrease() {
+  if( alertLevel == -1 ) return;
+  Serial.println( String( F("Alertness level up to ") ) + String( alertLevel ) + ( alertLevel == 0 ? String( F(" (alarm in home region)") ) : F(" (alarm in neighboring regions)") ) );
+
+  if( alertLevel == 0 ) {
+    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
+    beeperBeeps.insert( beeperBeeps.end(), {
+      { 150, 1 }, { 100, 0 }, { 150, 1 }, { 100, 0 }, { 150, 1 },
+      { 150, 0 },
+      { 450, 1 }, { 100, 0 }, { 450, 1 }, { 100, 0 }, { 450, 1 },
+      { 150, 0 },
+      { 150, 1 }, { 100, 0 }, { 150, 1 }, { 100, 0 }, { 150, 1 } } );
+  } else if( alertLevel == 1 ) {
+    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
+    beeperBeeps.insert( beeperBeeps.end(), {
+      { 150, 1 }, { 100, 0 }, { 150, 1 }, { 100, 0 }, { 150, 1 }
+    } );
+  } else if( alertLevel == 2 ) {
+    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
+    beeperBeeps.insert( beeperBeeps.end(), {
+      { 150, 1 }, { 100, 0 }, { 150, 1 }
+    } );
+  } else if( alertLevel == 3 ) {
+    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
+    beeperBeeps.insert( beeperBeeps.end(), {
+      { 150, 1 }
+    } );
+  }
+}
+
+void signalAlertnessLevelDecrease() {
+  Serial.println( String( F("Alertness level down to ") ) + String( alertLevel ) + ( alertLevel == -1 ? String( F(" (not dangerous)") ) : F(" (alarm in neighboring regions)") ) );
+
+}
+
+
+std::vector<std::vector<uint8_t>> adjacentRegions = {};
+void setAdjacentRegions() {
+  std::vector<std::vector<uint8_t>> result;
+
+  if( alertLevelLedIndex != -1 ) {
+    std::vector<std::vector<uint8_t>> remainingRegionPairsLvl1;
+    std::vector<uint8_t> adjacentRegionsLvl1;
+    for( const std::vector<uint8_t>& regionPair : getRegionPairs() ) {
+      if( regionPair[0] == alertLevelLedIndex ) {
+        adjacentRegionsLvl1.push_back( regionPair[1] );
+      } else if( regionPair[1] == alertLevelLedIndex ) {
+        adjacentRegionsLvl1.push_back( regionPair[0] );
+      } else {
+        remainingRegionPairsLvl1.push_back( regionPair );
+      }
+    }
+    result.push_back( adjacentRegionsLvl1 );
+
+    std::vector<std::vector<uint8_t>> remainingRegionPairsLvl2;
+    std::vector<uint8_t> adjacentRegionsLvl2;
+    for( const std::vector<uint8_t>& regionPair : remainingRegionPairsLvl1 ) {
+      bool regionPairFound = false;
+      for( uint8_t adjacentRegionLvl1 : adjacentRegionsLvl1 ) {
+        if( regionPair[0] == adjacentRegionLvl1 ) {
+          adjacentRegionsLvl2.push_back( regionPair[1] );
+          regionPairFound = true;
+        } else if( regionPair[1] == adjacentRegionLvl1 ) {
+          adjacentRegionsLvl2.push_back( regionPair[0] );
+          regionPairFound = true;
+        }
+      }
+      if( !regionPairFound ) {
+        remainingRegionPairsLvl2.push_back( regionPair );
+      }
+    }
+    result.push_back( adjacentRegionsLvl2 );
+
+    std::vector<std::vector<uint8_t>> remainingRegionPairsLvl3;
+    std::vector<uint8_t> adjacentRegionsLvl3;
+    for( const std::vector<uint8_t>& regionPair : remainingRegionPairsLvl2 ) {
+      bool regionPairFound = false;
+      for( uint8_t adjacentRegionLvl2 : adjacentRegionsLvl2 ) {
+        if( regionPair[0] == adjacentRegionLvl2 ) {
+          adjacentRegionsLvl3.push_back( regionPair[1] );
+          regionPairFound = true;
+        } else if( regionPair[1] == adjacentRegionLvl2 ) {
+          adjacentRegionsLvl3.push_back( regionPair[0] );
+          regionPairFound = true;
+        }
+      }
+      if( !regionPairFound ) {
+        remainingRegionPairsLvl3.push_back( regionPair );
+      }
+    }
+    result.push_back( adjacentRegionsLvl3 );
+  }
+
+  adjacentRegions = result;
+}
+
+void resetAlertnessLevel() {
+  alertLevel = -1;
+  Serial.println( String( F("Alertness level was reset") ) );
+}
+
+void processAlertnessLevel() {
+  if( alertLevelLedIndex == -1 ) return;
+
+  int8_t oldAlertLevel = alertLevel;
+  int8_t newAlertLevel = -1;
+
+  const std::vector<std::vector<const char*>>& allRegions = getRegions();
+  if( getRegionStatusByLedIndex( alertLevelLedIndex, allRegions ) == RAID_ALARM_STATUS_ACTIVE ) {
+    newAlertLevel = 0;
+  }
+
+  if( newAlertLevel == -1 ) {
+    std::vector<std::vector<uint8_t>> adjacentRegionIndices = adjacentRegions;
+    for( const auto& ledIndex : adjacentRegionIndices[0] ) {
+      if( getRegionStatusByLedIndex( ledIndex, allRegions ) == RAID_ALARM_STATUS_ACTIVE ) {
+        newAlertLevel = 1;
+        break;
+      }
+    }
+
+    if( newAlertLevel == -1 ) {
+      for( const auto& ledIndex : adjacentRegionIndices[1] ) {
+        if( getRegionStatusByLedIndex( ledIndex, allRegions ) == RAID_ALARM_STATUS_ACTIVE ) {
+          newAlertLevel = 2;
+          break;
+        }
+      }
+    }
+    if( newAlertLevel == -1 ) {
+      for( const auto& ledIndex : adjacentRegionIndices[2] ) {
+        if( getRegionStatusByLedIndex( ledIndex, allRegions ) == RAID_ALARM_STATUS_ACTIVE ) {
+          newAlertLevel = 3;
+          break;
+        }
+      }
+    }
+  }
+
+  alertLevel = newAlertLevel;
+  if( newAlertLevel != -1 && ( oldAlertLevel == -1 || newAlertLevel < oldAlertLevel ) ) {
+    signalAlertnessLevelIncrease();
+  } else if( oldAlertLevel != -1 && ( newAlertLevel == -1 || newAlertLevel > oldAlertLevel ) ) {
+    signalAlertnessLevelDecrease();
+  }
 }
 
 
@@ -836,18 +1088,12 @@ void renderStrip() {
     std::vector<std::vector<uint8_t>>& transitionAnimation = transitionAnimations[ledIndex];
     uint8_t alarmStatusLedIndex = ( ledIndex < STRIP_STATUS_LED_INDEX || STRIP_STATUS_LED_INDEX < 0 ) ? ledIndex : ledIndex + 1;
     std::vector<uint8_t> alarmStatusColorToDisplay = RAID_ALARM_STATUS_COLOR_UNKNOWN;
-    int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
+    int8_t alarmStatus = getRegionStatusByLedIndex( ledIndex, allRegions );
     if( transitionAnimation.size() > 0 ) {
       std::vector<uint8_t> nextAnimationColor = transitionAnimation.front();
       transitionAnimation.erase( transitionAnimation.begin() );
       alarmStatusColorToDisplay = nextAnimationColor;
     } else {
-      for( const auto& region : allRegions[ledIndex] ) {
-        int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
-        if( regionLedAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
-        if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
-        alarmStatus = regionLedAlarmStatus;
-      }
       if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
         alarmStatusColorToDisplay = showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive;
       } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
@@ -1130,24 +1376,12 @@ void resetAlarmStatusAndConnectToWiFi() {
 bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAlarmEnabled ) {
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
 
-  int8_t oldAlarmStatusForRegionGroup = RAID_ALARM_STATUS_UNINITIALIZED;
-  for( const auto& region : allRegions[ledIndex] ) {
-    int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
-    if( regionLedAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
-    if( oldAlarmStatusForRegionGroup == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
-    oldAlarmStatusForRegionGroup = regionLedAlarmStatus;
-  }
+  int8_t oldAlarmStatusForRegionGroup = getRegionStatusByLedIndex( ledIndex, allRegions );
 
   int8_t newAlarmStatusForRegion = isAlarmEnabled ? RAID_ALARM_STATUS_ACTIVE : RAID_ALARM_STATUS_INACTIVE;
-  regionToRaidAlarmStatus[regionName] = newAlarmStatusForRegion;
+  regionNameToRaidAlarmStatus[regionName] = newAlarmStatusForRegion;
 
-  int8_t newAlarmStatusForRegionGroup = RAID_ALARM_STATUS_UNINITIALIZED;
-  for( const auto& region : allRegions[ledIndex] ) {
-    int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
-    if( regionLedAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
-    if( newAlarmStatusForRegionGroup == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
-    newAlarmStatusForRegionGroup = regionLedAlarmStatus;
-  }
+  int8_t newAlarmStatusForRegionGroup = getRegionStatusByLedIndex( ledIndex, allRegions );
 
   bool isStatusChanged = newAlarmStatusForRegionGroup != oldAlarmStatusForRegionGroup;
   if( oldAlarmStatusForRegionGroup != RAID_ALARM_STATUS_UNINITIALIZED && isStatusChanged ) {
@@ -1195,21 +1429,21 @@ void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
   bool isParseError = false;
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    const std::vector<const char*>& regions = allRegions[ledIndex];
-    for( const char* region : regions ) {
+    const std::vector<const char*>& regionNames = allRegions[ledIndex];
+    for( const char* regionName : regionNames ) {
       bool isRegionFound = false;
       for( const auto& receivedRegionItem : regionToAlarmStatus ) {
         const char* receivedRegionName = receivedRegionItem.first.c_str();
-        if( strcmp( region, receivedRegionName ) == 0 ) {
+        if( strcmp( regionName, receivedRegionName ) == 0 ) {
           isRegionFound = true;
           bool isAlarmEnabled = receivedRegionItem.second;
-          processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
+          processRaidAlarmStatus( ledIndex, regionName, isAlarmEnabled );
           break;
         }
       }
       if( !isRegionFound ) {
         isParseError = true;
-        Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + String( region ) + String( F(" not found") ) );
+        Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + String( regionName ) + String( F(" not found") ) );
       }
     }
   }
@@ -1584,21 +1818,21 @@ void uaProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
   bool isParseError = false;
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    const std::vector<const char*>& regions = allRegions[ledIndex];
-    for( const char* region : regions ) {
+    const std::vector<const char*>& regionNames = allRegions[ledIndex];
+    for( const char* regionName : regionNames ) {
       bool isRegionFound = false;
       for( const auto& receivedRegionItem : regionToAlarmStatus ) {
         const char* receivedRegionName = receivedRegionItem.first.c_str();
-        if( strcmp( region, receivedRegionName ) == 0 ) {
+        if( strcmp( regionName, receivedRegionName ) == 0 ) {
           isRegionFound = true;
           bool isAlarmEnabled = receivedRegionItem.second;
-          processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
+          processRaidAlarmStatus( ledIndex, regionName, isAlarmEnabled );
           break;
         }
       }
       if( !isRegionFound ) { //API sends only active alarms, so if region was not found, then alarm status is inactive
         bool isAlarmEnabled = false;
-        processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
+        processRaidAlarmStatus( ledIndex, regionName, isAlarmEnabled );
       }
     }
   }
@@ -1965,13 +2199,13 @@ bool acProcessServerData( String payload ) {
       } else if( packet.startsWith( dataResponseStart ) ) { //data packet received in format s:12=1
         Serial.println( String( F("Received status packet: ") ) + packet.substring( packet.indexOf(':') + 1 ) );
         String receivedRegionStr = packet.substring( 2, packet.indexOf('=') );
-        const char* receivedRegion = receivedRegionStr.c_str();
+        const char* receivedRegionName = receivedRegionStr.c_str();
         bool isAlarmEnabled = packet.substring( packet.indexOf('=') + 1 ) == "1";
         for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-          const std::vector<const char*>& regions = allRegions[ledIndex];
-          for( const char* region : regions ) {
-            if( strcmp( region, receivedRegion ) == 0 ) {
-              ledStatusUpdated = processRaidAlarmStatus( ledIndex, region, isAlarmEnabled ) || ledStatusUpdated;
+          const std::vector<const char*>& regionNames = allRegions[ledIndex];
+          for( const char* regionName : regionNames ) {
+            if( strcmp( regionName, receivedRegionName ) == 0 ) {
+              ledStatusUpdated = processRaidAlarmStatus( ledIndex, regionName, isAlarmEnabled ) || ledStatusUpdated;
               break;
             }
           }
@@ -2040,21 +2274,21 @@ void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
   bool isParseError = false;
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    const std::vector<const char*>& regions = allRegions[ledIndex];
-    for( const char* region : regions ) {
+    const std::vector<const char*>& regionNames = allRegions[ledIndex];
+    for( const char* regionName : regionNames ) {
       bool isRegionFound = false;
       for( const auto& receivedRegionItem : regionToAlarmStatus ) {
         const char* receivedRegionName = receivedRegionItem.first.c_str();
-        if( strcmp( region, receivedRegionName ) == 0 ) {
+        if( strcmp( regionName, receivedRegionName ) == 0 ) {
           isRegionFound = true;
           bool isAlarmEnabled = receivedRegionItem.second;
-          processRaidAlarmStatus( ledIndex, region, isAlarmEnabled );
+          processRaidAlarmStatus( ledIndex, regionName, isAlarmEnabled );
           break;
         }
       }
       if( !isRegionFound ) {
         isParseError = true;
-        Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + region + String( F(" not found") ) );
+        Serial.println( String( F("ERROR: JSON data processing failed: region ") ) + regionName + String( F(" not found") ) );
       }
     }
   }
@@ -2197,7 +2431,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
     "<style>"
       ":root{--f:22px;}"
       "body{margin:0;background-color:#444;font-family:sans-serif;color:#FFF;}"
-      "body,input,button{font-size:var(--f);}"
+      "body,input,button,select{font-size:var(--f);}"
       ".wrp{width:60%;min-width:460px;max-width:600px;margin:auto;margin-bottom:10px;}"
       "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.3em;margin-bottom:0.3em;}"
       ".fx{display:flex;flex-wrap:wrap;margin:auto;margin-top:0.3em;}"
@@ -2209,7 +2443,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".ex.exc{height:0;margin-top:0;}.ex.exc>*{visibility:hidden;}"
       ".ex.exc.exon{height:inherit;}.ex.exc.exon>*{visibility:initial;}"
       "label{flex:none;padding-right:0.6em;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
-      "input{width:100%;padding:0.1em 0.2em;}"
+      "input,select{width:100%;padding:0.1em 0.2em;}"
       "input[type=\"radio\"],input[type=\"checkbox\"]{flex:none;margin:0.1em 0;width:calc(var(--f)*1.2);height:calc(var(--f)*1.2);}"
       "input[type=\"radio\"]+label,input[type=\"checkbox\"]+label{padding-left:0.6em;padding-right:initial;flex:1 1 auto;max-width:initial;}"
       "input[type=\"range\"]{-webkit-appearance:none;background:transparent;padding:0;}"
@@ -2318,6 +2552,7 @@ const char* HTML_PAGE_ALARM_ONOFF_NAME = "clronoff";
 const char* HTML_PAGE_ALARM_OFFON_NAME = "clroffon";
 const char* HTML_PAGE_BRIGHTNESS_NIGHT_NAME = "brtn";
 const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
+const char* HTML_PAGE_HOME_REGION_NAME = "hm";
 
 void handleWebServerGet() {
   String content = getHtmlPage(
@@ -2341,6 +2576,14 @@ void handleWebServerGet() {
       "Array.from(el.parentElement.parentElement.children).forEach(ch=>{"
         "if(ch.classList.contains(\"ex\"))ch.classList.toggle(\"exon\");"
       "});"
+    "}"
+    "function op(id,val){"
+      "let sl=document.getElementById(id);"
+      "for(let i=0;i<sl.options.length;i++){"
+        "if(sl.options[i].value!=val)continue;"
+        "sl.selectedIndex=i;"
+        "break;"
+      "}"
     "}"
   "</script>"
   "<form method=\"POST\">"
@@ -2381,6 +2624,38 @@ void handleWebServerGet() {
   "</div>"
   "<div class=\"fx\">"
     "<h2>Other Settings:</h2>"
+    "<div class=\"fi pl\">"
+      "<label for=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\">Home Region:</label>"
+      "<select id=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\" name=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\">"
+        "<option value=\"-1\">-- None --</option>"
+        "<option value=\"10\">Київ та Київська область</option>"
+        "<option value=\"23\">АР Крим та Севастополь</option>"
+        "<option value=\"8\">Вінницька область</option>"
+        "<option value=\"2\">Волинська область</option>"
+        "<option value=\"17\">Дніпропетровська область</option>"
+        "<option value=\"15\">Донецька область</option>"
+        "<option value=\"9\">Житомирська область</option>"
+        "<option value=\"0\">Закарпатська область</option>"
+        "<option value=\"16\">Запорізька область</option>"
+        "<option value=\"6\">Івано-Франківська область</option>"
+        "<option value=\"20\">Кіровоградська область</option>"
+        "<option value=\"1\">Львівська область</option>"
+        "<option value=\"14\">Луганська область</option>"
+        "<option value=\"21\">Миколаївська область</option>"
+        "<option value=\"22\">Одеська область</option>"
+        "<option value=\"18\">Полтавська область</option>"
+        "<option value=\"3\">Рівненська область</option>"
+        "<option value=\"12\">Сумська область</option>"
+        "<option value=\"5\">Тернопільська область</option>"
+        "<option value=\"13\">Харківська область</option>"
+        "<option value=\"24\">Херсонська область</option>"
+        "<option value=\"4\">Хмельницька область</option>"
+        "<option value=\"19\">Черкаська область</option>"
+        "<option value=\"7\">Чернівецька область</option>"
+        "<option value=\"11\">Чернігівська область</option>"
+      "</select>"
+      "<script>op('") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("','") ) + String( alertLevelLedIndex ) + String( F("');</script>"
+    "</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Show raid alarms only"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Show status LED when idle"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Party mode (hue shifting)<span class=\"i\" title=\"This setting overrides the night mode!\"></span>"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + String( F("</div>"
@@ -2549,6 +2824,13 @@ void handleWebServerPost() {
     stripPartyModeReceivedPopulated = true;
   }
 
+  String htmlPageHomeRegionReceived = wifiWebServer.arg( HTML_PAGE_HOME_REGION_NAME );
+  uint8_t homeRegionReceived = htmlPageHomeRegionReceived.toInt();
+  bool homeRegionReceivedPopulated = false;
+  if( homeRegionReceived >= -1 ) {
+    homeRegionReceivedPopulated = true;
+  }
+
   bool isWiFiChanged = strcmp( wiFiClientSsid, htmlPageSsidNameReceived.c_str() ) != 0 || strcmp( wiFiClientPassword, htmlPageSsidPasswordReceived.c_str() ) != 0;
   bool isDataSourceChanged = raidAlarmServerReceivedPopulated && raidAlarmServerReceived != currentRaidAlarmServer;
 
@@ -2633,14 +2915,14 @@ void handleWebServerPost() {
     stripLedBrightness = stripLedBrightnessReceived;
     isStripRerenderRequired = true;
     Serial.println( F("Strip brightness updated") );
-    writeEepromIntValue( eepromStripLedBrightnessIndex, stripLedBrightnessReceived );
+    writeEepromUintValue( eepromStripLedBrightnessIndex, stripLedBrightnessReceived );
   }
 
   if( stripLedBrightnessDimmingNightReceivedPopulated && stripLedBrightnessDimmingNightReceived != stripLedBrightnessDimmingNight ) {
     stripLedBrightnessDimmingNight = stripLedBrightnessDimmingNightReceived;
     isStripRerenderRequired = true;
     Serial.println( F("Strip night brightness updated") );
-    writeEepromIntValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNightReceived );
+    writeEepromUintValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNightReceived );
   }
 
   if( stripPartyModeReceivedPopulated && stripPartyModeReceived != stripPartyMode ) {
@@ -2648,12 +2930,22 @@ void handleWebServerPost() {
     //isStripRerenderRequired = true;
     Serial.println( F("Strip party mode updated") );
     stripPartyModeHue = 0;
-    writeEepromIntValue( eepromStripPartyModeIndex, stripPartyModeReceived );
+    writeEepromUintValue( eepromStripPartyModeIndex, stripPartyModeReceived );
+  }
+
+  if( homeRegionReceivedPopulated && homeRegionReceived != alertLevelLedIndex ) {
+    alertLevelLedIndex = homeRegionReceived;
+    isStripRerenderRequired = true;
+    Serial.println( F("Home region updated") );
+    setAdjacentRegions();
+    resetAlertnessLevel();
+    processAlertnessLevel();
+    writeEepromIntValue( eepromAlertLevelIndex, homeRegionReceived );
   }
 
   if( isDataSourceChanged ) {
     Serial.println( F("Data source updated") );
-    writeEepromIntValue( eepromRaidAlarmServerIndex, raidAlarmServerReceived );
+    writeEepromUintValue( eepromRaidAlarmServerIndex, raidAlarmServerReceived );
     Serial.println( F("Switching to new data source...") );
     currentRaidAlarmServer = raidAlarmServerReceived;
     isReconnectRequired = true;
@@ -2760,13 +3052,7 @@ void handleWebServerGetMap() {
     String content = "{";
     const std::vector<std::vector<const char*>>& allRegions = getRegions();
     for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-      int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
-      for( const auto& region : allRegions[ledIndex] ) {
-        int8_t regionLedAlarmStatus = regionToRaidAlarmStatus[region];
-        if( regionLedAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
-        if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
-        alarmStatus = regionLedAlarmStatus;
-      }
+      int8_t alarmStatus = getRegionStatusByLedIndex( ledIndex, allRegions );
       content += String( ledIndex != 0 ? "," : "" ) + "\"" + String( ledIndex ) + "\":" + String( alarmStatus == RAID_ALARM_STATUS_INACTIVE ? ( showOnlyActiveAlarms ? "-1" : "0" ) : ( alarmStatus == RAID_ALARM_STATUS_ACTIVE ? "1" : "-1" ) );
     }
     content += "}";
@@ -2952,11 +3238,13 @@ void setup() {
   Serial.println();
   Serial.println( String( F("Air Raid Alarm Monitor by Dmytro Kurylo. V@") ) + getFirmwareVersion() + String( F(" CPU@") ) + String( ESP.getCpuFreqMHz() ) );
 
+  initBeeper();
   initInternalLed();
   initEeprom();
   loadEepromData();
   initStrip();
   initVariables();
+  setAdjacentRegions();
   LittleFS.begin();
   configureWebServer();
   //wiFiEventHandler = WiFi.onStationModeConnected( &onWiFiConnected );
@@ -2991,8 +3279,10 @@ void loop() {
         forceRaidAlarmUpdate = false;
         if( WiFi.isConnected() ) {
           vkRetrieveAndProcessServerData();
+          processAlertnessLevel();
         } else {
           resetAlarmStatusAndConnectToWiFi();
+          resetAlertnessLevel();
         }
         previousMillisRaidAlarmCheck = millis();
       }
@@ -3002,17 +3292,21 @@ void loop() {
         forceRaidAlarmUpdate = false;
         if( WiFi.isConnected() ) {
           uaRetrieveAndProcessServerData();
+          processAlertnessLevel();
         } else {
           resetAlarmStatusAndConnectToWiFi();
+          resetAlertnessLevel();
         }
         previousMillisRaidAlarmCheck = millis();
       }
       break;
     case AC_RAID_ALARM_SERVER:
       acRetrieveAndProcessServerData();
+      processAlertnessLevel();
       if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
         if( !WiFi.isConnected() ) {
           resetAlarmStatusAndConnectToWiFi();
+          resetAlertnessLevel();
         }
         previousMillisRaidAlarmCheck = millis();
       }
@@ -3022,8 +3316,10 @@ void loop() {
         forceRaidAlarmUpdate = false;
         if( WiFi.isConnected() ) {
           aiRetrieveAndProcessServerData();
+          processAlertnessLevel();
         } else {
           resetAlarmStatusAndConnectToWiFi();
+          resetAlertnessLevel();
         }
         previousMillisRaidAlarmCheck = millis();
       }
@@ -3031,6 +3327,8 @@ void loop() {
     default:
       break;
   }
+
+  beeperProcessLoopTick();
 
   if( isFirstLoopRun || ( calculateDiffMillis( previousMillisLedAnimation, millis() ) >= DELAY_DISPLAY_ANIMATION ) ) {
     previousMillisLedAnimation = millis();
