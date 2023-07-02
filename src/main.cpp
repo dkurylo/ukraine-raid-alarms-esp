@@ -1007,8 +1007,8 @@ std::vector<uint8_t> getRequestedColor( std::vector<uint8_t> color, double brigh
   uint8_t g_req = color[1];
   uint8_t b_req = color[2];
 
-  if( color[0] == 0 && color[1] == 0 && color[2] == 0 ) {
-    return { color[0], color[1], color[2] };
+  if( r_req == 0 && g_req == 0 && b_req == 0 ) {
+    return { r_req, g_req, b_req };
   }
 
   uint8_t r = round( brightness * r_req / 255 );
@@ -1169,7 +1169,11 @@ bool setStripStatus() {
     ledColor = { 15, 0, 0 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING ) {
-    ledColor = { 0, 0, 0 };
+    if( showStripIdleStatusLed ) {
+      ledColor = { 0, 0, 1 };
+    } else {
+      ledColor = { 0, 0, 0 };
+    }
     dimLedAtNight = false;
   } else if( statusLedColor == STRIP_STATUS_BLACK || ( !showStripIdleStatusLed && statusLedColor == STRIP_STATUS_OK ) ) {
     ledColor = { 0, 0, 0 };
@@ -2432,7 +2436,7 @@ String getHtmlPage( String pageBody ) {
 "<html>"
   "<head>"
     "<meta charset=\"UTF-8\">"
-    "<title>Air Raid Alarm Monitor</title>"
+    "<title>Мапа повітряних тривог</title>"
     "<style>"
       ":root{--f:22px;}"
       "body{margin:0;background-color:#444;font-family:sans-serif;color:#FFF;}"
@@ -2475,7 +2479,7 @@ String getHtmlPage( String pageBody ) {
   "</head>"
   "<body>"
     "<div class=\"wrp\">"
-      "<h2>Air Raid Alarm Monitor<div class=\"lnk\" style=\"font-size:50%;\">By <a href=\"mailto:kurylo.press@gmail.com?subject=Air Raid Alarm Monitor\">Dmytro Kurylo</a></div></h2>");
+      "<h2>МАПА ПОВІТРЯНИХ ТРИВОГ<div class=\"lnk\" style=\"font-size:50%;\">Розробник: <a href=\"mailto:kurylo.press@gmail.com?subject=Мапа повітряних тривог\">Дмитро Курило</a></div></h2>");
   result.concat( pageBody );
   result.concat( F("</div>"
   "</body>"
@@ -2605,46 +2609,46 @@ void handleWebServerGet() {
   "</script>"
   "<form method=\"POST\">"
   "<div class=\"fx\">"
-    "<h2>Connect to WiFi:</h2>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("SSID Name"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, getWiFiClientSsidNameMaxLength(), true, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("SSID Password"), HTML_INPUT_PASSWORD, wiFiClientPassword, HTML_PAGE_WIFI_PWD_NAME, HTML_PAGE_WIFI_PWD_NAME, 0, getWiFiClientSsidPasswordMaxLength(), true, false ) ); content.concat( F("</div>"
+    "<h2>Приєднатись до WiFi:</h2>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Назва точки доступу"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, getWiFiClientSsidNameMaxLength(), true, false ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Пароль до точки доступу"), HTML_INPUT_PASSWORD, wiFiClientPassword, HTML_PAGE_WIFI_PWD_NAME, HTML_PAGE_WIFI_PWD_NAME, 0, getWiFiClientSsidPasswordMaxLength(), true, false ) ); content.concat( F("</div>"
   "</div>"
   "<div class=\"fx\">"
-    "<h2>Data Source:</h2>"
+    "<h2>Джерело даних:</h2>"
     "<div class=\"fi fv pl\">"
       "<div class=\"fi ex\">") ); content.concat( getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) ); content.concat( F("</div>"
     "</div>"
     "<div class=\"fi fv pl\">"
       "<div class=\"fi ex\">") ); content.concat( getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) ); content.concat( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Key"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_UA_KEY_NAME, HTML_PAGE_RAID_SERVER_UA_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_UA_KEY_NAME, HTML_PAGE_RAID_SERVER_UA_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
     "</div>"
     "<div class=\"fi fv pl\">"
       "<div class=\"fi ex\">") ); content.concat( getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER )  ); content.concat( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Key"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
     "</div>"
     "<div class=\"fi fv pl\">"
       "<div class=\"fi ex\">") ); content.concat( getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) ); content.concat( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Key"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AI_KEY_NAME, HTML_PAGE_RAID_SERVER_AI_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AI_KEY_NAME, HTML_PAGE_RAID_SERVER_AI_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
     "</div>"
   "</div>"
   "<div class=\"fx\">"
-    "<h2>Brightness:</h2>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Day"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Night<span class=\"i\" title=\"When set to maximum, night brighness will be the same as day brightness\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) ); content.concat( F("</div>"
+    "<h2>Яскравість:</h2>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Вдень"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Вночі<span class=\"i\" title=\"Максимум яскравості вночі дорівнює яскравості вдень\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) ); content.concat( F("</div>"
   "</div>"
   "<div class=\"fx\">"
-    "<h2>Colors:</h2>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Alarm Off"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Alarm On"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("On &rarr; Off"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Off &rarr; On"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
+    "<h2>Кольори:</h2>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Немає тривоги"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Є тривога"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Є &rarr; немає"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Немає &rarr; є"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
   "</div>"
   "<div class=\"fx\">"
-    "<h2>Other Settings:</h2>"
+    "<h2>Інші налаштування:</h2>"
     "<div class=\"fi pl\">"
-      "<label for=\"") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("\">Home Region:</label>"
+      "<label for=\"") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("\">Моя область:</label>"
       "<select id=\"") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("\" name=\"") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("\">"
-        "<option value=\"-1\">-- None --</option>"
+        "<option value=\"-1\">-- Відсутня --</option>"
         "<option value=\"10\">Київ та Київська область</option>"
         "<option value=\"23\">АР Крим та Севастополь</option>"
         "<option value=\"8\">Вінницька область</option>"
@@ -2673,24 +2677,27 @@ void handleWebServerGet() {
       "</select>"
       "<script>op('") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("','") ); content.concat( alertnessHomeRegionIndex ); content.concat( F("');</script>"
     "</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Show raid alarms only"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Show status LED when idle"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Party mode (hue shifting)<span class=\"i\" title=\"This setting overrides the night mode!\"></span>"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Показувати лише тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Підсвічувати статусний діод"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Режим вечірки (зміна кольору)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) ); content.concat( F("</div>"
   "</div>"
   "<div class=\"fx ft\">"
-    "<div class=\"fi\"><button type=\"submit\">Apply</button></div>"
+    "<div class=\"fi\"><button type=\"submit\">Застосувати</button></div>"
   "</div>"
 "</form>"
-"<div class=\"fx ft\">"
-  "<span>"
-    "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Test Dimming") ) ); content.concat( F("<span class=\"i\" title=\"Apply your settings before testing!\"></span></span>"
-    "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Test LEDs") ) ); content.concat( F("</span>"
-  "</span>"
-  "<span class=\"lnk\"></span>"
-  "<span>"
-    "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Update FW") ) ); content.concat( F("<span class=\"i\" title=\"Current version: ") ); content.concat( getFirmwareVersion() ); content.concat( F("\"></span></span>"
-    "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Reboot") ) ); content.concat( F("</span>"
-  "</span>"
+"<div class=\"ft\">"
+  "<div class=\"fx\">"
+    "<span>"
+      "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Перевірити нічний режим") ) ); content.concat( F("<span class=\"i\" title=\"Застосуйте налаштування перед перевіркою!\"></span></span>"
+      "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Перевірити діоди") ) ); content.concat( F("</span>"
+    "</span>"
+  "</div>"
+  "<div class=\"fx\">"
+    "<span>"
+      "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Оновити прошивку") ) ); content.concat( F("<span class=\"i\" title=\"Поточна версія: ") ); content.concat( getFirmwareVersion() ); content.concat( F("\"></span></span>"
+      "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Перезавантажити") ) ); content.concat( F("</span>"
+    "</span>"
+  "</div>"
 "</div>") );
 
   content = getHtmlPage( content );
@@ -3120,9 +3127,9 @@ void handleWebServerGetMap() {
     "ae.innerHTML+='") );
 
   if( anchorId == "" ) {
-    content.concat( F("<a href=\"/\" style=\"position:absolute;right:0;top:0;z-index:3;\">Display Setup</a>") );
+    content.concat( F("<a href=\"/\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати налаштування</a>") );
   } else {
-    content.concat( F("<a href=\"") ); content.concat( HTML_PAGE_MAP_ENDPOINT ); content.concat( F("\" style=\"position:absolute;right:0;top:0;z-index:3;\">Display Map</a>") );
+    content.concat( F("<a href=\"") ); content.concat( HTML_PAGE_MAP_ENDPOINT ); content.concat( F("\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати мапу</a>") );
   }
   content.concat( F("<div>"
     "<div class=\"mapl\" style=\"top:46.7%;left:3.0%;\">УЖГОРОД</div>"
