@@ -536,6 +536,8 @@ String getContentType( String fileExtension ) {
     contentType = F("application/pdf");
   } else if( fileExtension == F("zip") ) {
     contentType = F("application/zip");
+  } else if( fileExtension == F("gz") ) {
+    contentType = F("application/gzip");
   } else if( fileExtension == F("mp3") ) {
     contentType = F("audio/mp3");
   } else if( fileExtension == F("mp4") ) {
@@ -544,6 +546,15 @@ String getContentType( String fileExtension ) {
     contentType = F("application/octet-stream");
   }
   return contentType;
+}
+
+File getFileFromFlash( String fileName ) {
+  bool isGzippedFileRequested = fileName.endsWith( F(".gz") );
+  File file = LittleFS.open( "/" + fileName + ( isGzippedFileRequested ? "" : ".gz" ), "r" );
+  if( !isGzippedFileRequested && !file ) {
+    file = LittleFS.open( "/" + fileName, "r" );
+  }
+  return file;
 }
 
 
@@ -838,32 +849,52 @@ void signalAlertnessLevelIncrease() {
   if( alertLevel == 0 ) {
     if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
     beeperBeeps.insert( beeperBeeps.end(), {
-      { 150, 1 }, { 100, 0 }, { 150, 1 }, { 100, 0 }, { 150, 1 },
-      { 150, 0 },
-      { 450, 1 }, { 100, 0 }, { 450, 1 }, { 100, 0 }, { 450, 1 },
-      { 150, 0 },
-      { 150, 1 }, { 100, 0 }, { 150, 1 }, { 100, 0 }, { 150, 1 } } );
+      { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 },
+      { 200, 0 },
+      { 400, 1 }, { 100, 0 }, { 400, 1 }, { 100, 0 }, { 400, 1 },
+      { 200, 0 },
+      { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 } } );
   } else if( alertLevel == 1 ) {
     if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
     beeperBeeps.insert( beeperBeeps.end(), {
-      { 150, 1 }, { 100, 0 }, { 150, 1 }, { 100, 0 }, { 150, 1 }
+      { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 }
     } );
   } else if( alertLevel == 2 ) {
     if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
     beeperBeeps.insert( beeperBeeps.end(), {
-      { 150, 1 }, { 100, 0 }, { 150, 1 }
+      { 200, 1 }, { 100, 0 }, { 200, 1 }
     } );
   } else if( alertLevel == 3 ) {
     if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
     beeperBeeps.insert( beeperBeeps.end(), {
-      { 150, 1 }
+      { 200, 1 }
     } );
   }
 }
 
 void signalAlertnessLevelDecrease() {
   Serial.println( String( F("Alertness level down to ") ) + String( alertLevel ) + ( alertLevel == -1 ? String( F(" (not dangerous)") ) : F(" (alarm in neighboring regions)") ) );
-
+  if( alertLevel == 1 ) {
+    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
+    beeperBeeps.insert( beeperBeeps.end(), {
+      { 100, 1 }, { 50, 0 }, { 100, 1 }, { 50, 0 }, { 100, 1 }
+    } );
+  } else if( alertLevel == 2 ) {
+    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
+    beeperBeeps.insert( beeperBeeps.end(), {
+      { 100, 1 }, { 50, 0 }, { 100, 1 }
+    } );
+  } else if( alertLevel == 3 ) {
+    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
+    beeperBeeps.insert( beeperBeeps.end(), {
+      { 100, 1 }
+    } );
+  } else if( alertLevel == -1 ) {
+    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
+    beeperBeeps.insert( beeperBeeps.end(), {
+      { 25, 1 }
+    } );
+  }
 }
 
 
@@ -2431,8 +2462,7 @@ void aiRetrieveAndProcessServerData() {
 
 
 //web server
-String getHtmlPage( String pageBody ) {
-  String result = F("<!DOCTYPE html>"
+const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
 "<html>"
   "<head>"
     "<meta charset=\"UTF-8\">"
@@ -2479,11 +2509,24 @@ String getHtmlPage( String pageBody ) {
   "</head>"
   "<body>"
     "<div class=\"wrp\">"
-      "<h2>МАПА ПОВІТРЯНИХ ТРИВОГ<div class=\"lnk\" style=\"font-size:50%;\">Розробник: <a href=\"mailto:kurylo.press@gmail.com?subject=Мапа повітряних тривог\">Дмитро Курило</a></div></h2>");
-  result.concat( pageBody );
-  result.concat( F("</div>"
+      "<h2>МАПА ПОВІТРЯНИХ ТРИВОГ<div class=\"lnk\" style=\"font-size:50%;\">Розробник: <a href=\"mailto:kurylo.press@gmail.com?subject=Мапа повітряних тривог\">Дмитро Курило</a></div></h2>";
+const char HTML_PAGE_END[] PROGMEM = "</div>"
   "</body>"
-"</html>") );
+"</html>";
+
+String getHtmlPage( String pageBody ) {
+  String result;
+  result.reserve( strlen_P(HTML_PAGE_START) + pageBody.length() + strlen_P(HTML_PAGE_END) + 1 );
+  char c;
+  for( uint16_t i = 0; i < strlen_P(HTML_PAGE_START); i++ ) {
+    c = pgm_read_byte( &HTML_PAGE_START[i] );
+    result += c;
+  }
+  result += pageBody;
+  for( uint16_t i = 0; i < strlen_P(HTML_PAGE_END); i++ ) {
+    c = pgm_read_byte( &HTML_PAGE_END[i] );
+    result += c;
+  }
   return result;
 }
 
@@ -2492,17 +2535,7 @@ String getHtmlLink( const char* href, String label ) {
 }
 
 String getHtmlLabel( String label, const char* elId, bool addColon ) {
-  String result = F("<label");
-  if( strlen(elId) > 0 ) {
-    result.concat( F(" for=\"") ); result.concat( elId ); result.concat( "\"" );
-  }
-  result.concat( ">" );
-  result.concat( label );
-  if( addColon ) {
-    result.concat( ":" );
-  }
-  result.concat( F("</label>") );
-  return result;
+  return String( F("<label") ) + (strlen(elId) > 0 ? String( F(" for=\"") ) + String( elId ) + "\"" : "") + ">" + label + ( addColon ? ":" : "" ) + String( F("</label>") );
 }
 
 const char* HTML_INPUT_TEXT = "text";
@@ -2513,31 +2546,18 @@ const char* HTML_INPUT_COLOR = "color";
 const char* HTML_INPUT_RANGE = "range";
 
 String getHtmlInput( String label, const char* type, const char* value, const char* elId, const char* elName, uint8_t minLength, uint8_t maxLength, bool isRequired, bool isChecked ) {
-  String result = "";
-  if( strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0 || strcmp(type, HTML_INPUT_COLOR) == 0 || strcmp(type, HTML_INPUT_RANGE) == 0 ) {
-    result.concat( getHtmlLabel( label, elId, true ) );
-  }
-  result.concat( F("<input type=\"") ); result.concat( type ); result.concat( F("\" id=\"") ); result.concat( elId ); result.concat( F("\" name=\"") ); result.concat( elName ); result.concat( "\"" );
-  if( maxLength > 0 && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ) {
-    result.concat( F(" maxLength=\"") ); result.concat( maxLength ); result.concat( "\"" );
-  }
-  if( strcmp(type, HTML_INPUT_CHECKBOX) != 0 ) {
-    result.concat( F(" value=\"") ); result.concat( value ); result.concat( "\"" );
-  }
-  if( isRequired && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ) {
-    result.concat( F(" required") );
-  }
-  if( isChecked && (strcmp(type, HTML_INPUT_RADIO) == 0 || strcmp(type, HTML_INPUT_CHECKBOX) == 0) ) {
-    result.concat( F(" checked") );
-  }
-  if( strcmp(type, HTML_INPUT_RANGE) == 0 ) {
-    result.concat( F(" min=\"") ); result.concat( minLength ); result.concat( F("\" max=\"") ); result.concat( maxLength ); result.concat( F("\" oninput=\"this.nextElementSibling.value=this.value;\"><output>") ); result.concat( value ); result.concat( F("</output") );
-  }
-  result.concat( ">" );
-  if( strcmp(type, HTML_INPUT_TEXT) != 0 && strcmp(type, HTML_INPUT_PASSWORD) != 0 && strcmp(type, HTML_INPUT_COLOR) != 0 && strcmp(type, HTML_INPUT_RANGE) != 0 ) {
-    result.concat( getHtmlLabel( label, elId, false ) );
-  }
-  return result;
+  return ( (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0 || strcmp(type, HTML_INPUT_COLOR) == 0 || strcmp(type, HTML_INPUT_RANGE) == 0) ? getHtmlLabel( label, elId, true ) : "" ) +
+    String( F("<input"
+      " type=\"") ) + type + String( F("\""
+      " id=\"") ) + String(elId) + F("\""
+      " name=\"") + String(elName) + "\"" +
+      ( maxLength > 0 && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ? String( F(" maxLength=\"") ) + String( maxLength ) + "\"" : "" ) +
+      ( (strcmp(type, HTML_INPUT_CHECKBOX) != 0) ? String( F(" value=\"") ) + String( value ) + "\"" : "" ) +
+      ( isRequired && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ? F(" required") : F("") ) +
+      ( isChecked && (strcmp(type, HTML_INPUT_RADIO) == 0 || strcmp(type, HTML_INPUT_CHECKBOX) == 0) ? F(" checked") : F("") ) +
+      ( (strcmp(type, HTML_INPUT_RANGE) == 0) ? String( F(" min=\"") ) + String( minLength ) + String( F("\" max=\"") ) + String(maxLength) + String( F("\" oninput=\"this.nextElementSibling.value=this.value;\"><output>") ) + String( value ) + String( F("</output") ) : "" ) +
+    ">" +
+      ( (strcmp(type, HTML_INPUT_TEXT) != 0 && strcmp(type, HTML_INPUT_PASSWORD) != 0 && strcmp(type, HTML_INPUT_COLOR) != 0 && strcmp(type, HTML_INPUT_RANGE) != 0) ? getHtmlLabel( label, elId, false ) : "" );
 }
 
 const uint8_t getWiFiClientSsidNameMaxLength() { return WIFI_SSID_MAX_LENGTH - 1;}
@@ -2574,12 +2594,11 @@ const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 const char* HTML_PAGE_HOME_REGION_NAME = "hmr";
 
 void handleWebServerGet() {
-  String content = "";
-  if( !isApInitialized ) {
-    content.concat( F("<script>"
+  String content = getHtmlPage(
+    ( isApInitialized ? "" : ( String( F("<script>"
     "document.addEventListener(\"DOMContentLoaded\",()=>{"
       "let xhr=new XMLHttpRequest();"
-      "xhr.open(\"GET\",\"") ); content.concat( HTML_PAGE_MAP_ENDPOINT ); content.concat( F("?id=map\",true);"
+      "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?id=map\",true);"
       "xhr.onload=(e)=>{"
         "if(xhr.readyState===4&&xhr.status===200){"
           "let scriptEl=document.createElement('script');"
@@ -2590,9 +2609,8 @@ void handleWebServerGet() {
       "xhr.send(null);"
     "});"
   "</script>"
-  "<div id=\"map\"></div>") );
-  }
-  content.concat( F("<script>"
+  "<div id=\"map\"></div>") ) ) ) +
+  String( F("<script>"
     "function ex(el){"
       "Array.from(el.parentElement.parentElement.children).forEach(ch=>{"
         "if(ch.classList.contains(\"ex\"))ch.classList.toggle(\"exon\");"
@@ -2610,76 +2628,76 @@ void handleWebServerGet() {
   "<form method=\"POST\">"
   "<div class=\"fx\">"
     "<h2>Приєднатись до WiFi:</h2>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Назва точки доступу"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, getWiFiClientSsidNameMaxLength(), true, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Пароль до точки доступу"), HTML_INPUT_PASSWORD, wiFiClientPassword, HTML_PAGE_WIFI_PWD_NAME, HTML_PAGE_WIFI_PWD_NAME, 0, getWiFiClientSsidPasswordMaxLength(), true, false ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("SSID назва"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, getWiFiClientSsidNameMaxLength(), true, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("SSID пароль"), HTML_INPUT_PASSWORD, wiFiClientPassword, HTML_PAGE_WIFI_PWD_NAME, HTML_PAGE_WIFI_PWD_NAME, 0, getWiFiClientSsidPasswordMaxLength(), true, false ) + String( F("</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Джерело даних:</h2>"
     "<div class=\"fi fv pl\">"
-      "<div class=\"fi ex\">") ); content.concat( getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) ); content.concat( F("</div>"
+      "<div class=\"fi ex\">") ) + getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) + String( F("</div>"
     "</div>"
     "<div class=\"fi fv pl\">"
-      "<div class=\"fi ex\">") ); content.concat( getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) ); content.concat( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_UA_KEY_NAME, HTML_PAGE_RAID_SERVER_UA_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
+      "<div class=\"fi ex\">") ) + getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_UA_KEY_NAME, HTML_PAGE_RAID_SERVER_UA_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
     "</div>"
     "<div class=\"fi fv pl\">"
-      "<div class=\"fi ex\">") ); content.concat( getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER )  ); content.concat( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
+      "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
     "</div>"
     "<div class=\"fi fv pl\">"
-      "<div class=\"fi ex\">") ); content.concat( getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) ); content.concat( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ); content.concat( getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AI_KEY_NAME, HTML_PAGE_RAID_SERVER_AI_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) ); content.concat( F("</div></div>"
+      "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
+      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AI_KEY_NAME, HTML_PAGE_RAID_SERVER_AI_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
     "</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Яскравість:</h2>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Вдень"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Вночі<span class=\"i\" title=\"Максимум яскравості вночі дорівнює яскравості вдень\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("День"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Ніч<span class=\"i\" title=\"Максимум яскравості вночі дорівнює яскравості вдень\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) + String( F("</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Кольори:</h2>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Немає тривоги"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Є тривога"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Є &rarr; немає"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Немає &rarr; є"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Немає тривоги"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Є тривога"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Є &rarr; немає"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Немає &rarr; є"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) + String( F("</div>"
   "</div>"
   "<div class=\"fx\">"
     "<h2>Інші налаштування:</h2>"
     "<div class=\"fi pl\">"
-      "<label for=\"") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("\">Моя область:</label>"
-      "<select id=\"") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("\" name=\"") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("\">"
+      "<label for=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\">Моя область:</label>"
+      "<select id=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\" name=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\">"
         "<option value=\"-1\">-- Відсутня --</option>"
-        "<option value=\"10\">Київ та Київська область</option>"
+        "<option value=\"10\">Київ та Київська</option>"
         "<option value=\"23\">АР Крим та Севастополь</option>"
-        "<option value=\"8\">Вінницька область</option>"
-        "<option value=\"2\">Волинська область</option>"
-        "<option value=\"17\">Дніпропетровська область</option>"
-        "<option value=\"15\">Донецька область</option>"
-        "<option value=\"9\">Житомирська область</option>"
-        "<option value=\"0\">Закарпатська область</option>"
-        "<option value=\"16\">Запорізька область</option>"
-        "<option value=\"6\">Івано-Франківська область</option>"
-        "<option value=\"20\">Кіровоградська область</option>"
-        "<option value=\"1\">Львівська область</option>"
-        "<option value=\"14\">Луганська область</option>"
-        "<option value=\"21\">Миколаївська область</option>"
-        "<option value=\"22\">Одеська область</option>"
-        "<option value=\"18\">Полтавська область</option>"
-        "<option value=\"3\">Рівненська область</option>"
-        "<option value=\"12\">Сумська область</option>"
-        "<option value=\"5\">Тернопільська область</option>"
-        "<option value=\"13\">Харківська область</option>"
-        "<option value=\"24\">Херсонська область</option>"
-        "<option value=\"4\">Хмельницька область</option>"
-        "<option value=\"19\">Черкаська область</option>"
-        "<option value=\"7\">Чернівецька область</option>"
-        "<option value=\"11\">Чернігівська область</option>"
+        "<option value=\"8\">Вінницька</option>"
+        "<option value=\"2\">Волинська</option>"
+        "<option value=\"17\">Дніпропетровська</option>"
+        "<option value=\"15\">Донецька</option>"
+        "<option value=\"9\">Житомирська</option>"
+        "<option value=\"0\">Закарпатська</option>"
+        "<option value=\"16\">Запорізька</option>"
+        "<option value=\"6\">Івано-Франківська</option>"
+        "<option value=\"20\">Кіровоградська</option>"
+        "<option value=\"1\">Львівська</option>"
+        "<option value=\"14\">Луганська</option>"
+        "<option value=\"21\">Миколаївська</option>"
+        "<option value=\"22\">Одеська</option>"
+        "<option value=\"18\">Полтавська</option>"
+        "<option value=\"3\">Рівненська</option>"
+        "<option value=\"12\">Сумська</option>"
+        "<option value=\"5\">Тернопільська</option>"
+        "<option value=\"13\">Харківська</option>"
+        "<option value=\"24\">Херсонська</option>"
+        "<option value=\"4\">Хмельницька</option>"
+        "<option value=\"19\">Черкаська</option>"
+        "<option value=\"7\">Чернівецька</option>"
+        "<option value=\"11\">Чернігівська</option>"
       "</select>"
-      "<script>op('") ); content.concat( HTML_PAGE_HOME_REGION_NAME ); content.concat( F("','") ); content.concat( alertnessHomeRegionIndex ); content.concat( F("');</script>"
+      "<script>op('") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("','") ) + String( alertnessHomeRegionIndex ) + String( F("');</script>"
     "</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Показувати лише тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Підсвічувати статусний діод"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) ); content.concat( F("</div>"
-    "<div class=\"fi pl\">") ); content.concat( getHtmlInput( F("Режим вечірки (зміна кольору)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) ); content.concat( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Показувати лише тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Підсвічувати статусний діод"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + String( F("</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Режим вечірки (зміна кольору)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + String( F("</div>"
   "</div>"
   "<div class=\"fx ft\">"
     "<div class=\"fi\"><button type=\"submit\">Застосувати</button></div>"
@@ -2688,26 +2706,25 @@ void handleWebServerGet() {
 "<div class=\"ft\">"
   "<div class=\"fx\">"
     "<span>"
-      "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Перевірити нічний режим") ) ); content.concat( F("<span class=\"i\" title=\"Застосуйте налаштування перед перевіркою!\"></span></span>"
-      "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Перевірити діоди") ) ); content.concat( F("</span>"
+      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Перевірити нічний режим") ) + String( F("<span class=\"i\" title=\"Застосуйте налаштування перед перевіркою!\"></span></span>"
+      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Перевірити діоди") ) + String( F("</span>"
     "</span>"
   "</div>"
   "<div class=\"fx\">"
     "<span>"
-      "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Оновити прошивку") ) ); content.concat( F("<span class=\"i\" title=\"Поточна версія: ") ); content.concat( getFirmwareVersion() ); content.concat( F("\"></span></span>"
-      "<span class=\"sub\">") ); content.concat( getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Перезавантажити") ) ); content.concat( F("</span>"
+      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Оновити прошивку") ) + String( F("<span class=\"i\" title=\"Поточна версія: ") ) + getFirmwareVersion() + String( F("\"></span></span>"
+      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Перезавантажити") ) + String( F("</span>"
     "</span>"
   "</div>"
-"</div>") );
+"</div>") ) );
 
-  content = getHtmlPage( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
 }
 
-String getHtmlPageFillup( String animationLength, String redirectLength ) {
-  String result = F("<style>"
-  "#fill{border:2px solid #FFF;background:#666;margin:1em 0;}#fill>div{width:0;height:2.5vw;background-color:#FFF;animation:fill "); result.concat( animationLength ); result.concat( F("s linear forwards;}"
+const char HTML_PAGE_FILLUP_START[] PROGMEM = "<style>"
+  "#fill{border:2px solid #FFF;background:#666;margin:1em 0;}#fill>div{width:0;height:2.5vw;background-color:#FFF;animation:fill ";
+const char HTML_PAGE_FILLUP_MID[] PROGMEM = "s linear forwards;}"
   "@keyframes fill{0%{width:0;}100%{width:100%;}}"
 "</style>"
 "<div id=\"fill\"><div></div></div>"  
@@ -2715,9 +2732,29 @@ String getHtmlPageFillup( String animationLength, String redirectLength ) {
   "document.addEventListener(\"DOMContentLoaded\",()=>{"
     "setTimeout(()=>{"
       "window.location.href=\"/\";"
-    "},") ); result.concat( redirectLength ); result.concat( F("000);"
+    "},";
+const char HTML_PAGE_FILLUP_END[] PROGMEM = "000);"
   "});"
-"</script>") );
+"</script>";
+
+String getHtmlPageFillup( String animationLength, String redirectLength ) {
+  String result;
+  result.reserve( strlen_P(HTML_PAGE_FILLUP_START) + animationLength.length() + strlen_P(HTML_PAGE_FILLUP_MID) + redirectLength.length() + strlen_P(HTML_PAGE_FILLUP_END) + 1 );
+  char c;
+  for( uint16_t i = 0; i < strlen_P(HTML_PAGE_FILLUP_START); i++ ) {
+    c = pgm_read_byte( &HTML_PAGE_FILLUP_START[i] );
+    result += c;
+  }
+  result += animationLength;
+  for( uint16_t i = 0; i < strlen_P(HTML_PAGE_FILLUP_MID); i++ ) {
+    c = pgm_read_byte( &HTML_PAGE_FILLUP_MID[i] );
+    result += c;
+  }
+  result += redirectLength;
+  for( uint16_t i = 0; i < strlen_P(HTML_PAGE_FILLUP_END); i++ ) {
+    c = pgm_read_byte( &HTML_PAGE_FILLUP_END[i] );
+    result += c;
+  }
   return result;
 }
 
@@ -2841,7 +2878,7 @@ void handleWebServerPost() {
   bool isDataSourceChanged = raidAlarmServerReceivedPopulated && raidAlarmServerReceived != currentRaidAlarmServer;
 
   String waitTime = isWiFiChanged ? String(TIMEOUT_CONNECT_WEB/1000 + 6) : ( isDataSourceChanged ? "4" : "2" );
-  String content = getHtmlPage( getHtmlPageFillup( waitTime, waitTime ) + String( F("<h2>Save successful</h2>") ) );
+  String content = getHtmlPage( getHtmlPageFillup( waitTime, waitTime ) + String( F("<h2>Зберігаю...</h2>") ) );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
 
@@ -3038,7 +3075,7 @@ void handleWebServerRedirect() {
 void handleWebServerGetMap() {
   String fileName = wifiWebServer.arg("f");
   if( fileName != "" ) {
-    File file = LittleFS.open( "/" + fileName, "r" );
+    File file = getFileFromFlash( fileName );
     if( !file ) {
       wifiWebServer.send( 404, getContentType( F("txt") ), F("File not found") );
     } else {
@@ -3059,138 +3096,95 @@ void handleWebServerGetMap() {
     const std::vector<std::vector<const char*>>& allRegions = getRegions();
     for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
       int8_t alarmStatus = getRegionStatusByLedIndex( ledIndex, allRegions );
-      if( ledIndex != 0 ) {
-        content.concat( "," );
-      }
-      content.concat( "\"" ); content.concat( ledIndex ); content.concat( "\":" );
-      if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
-        if( showOnlyActiveAlarms ) {
-          content.concat( "-1" );
-        } else {
-          content.concat( "0" );
-        }
-      } else if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) {
-        content.concat( "1" );
-      } else {
-        content.concat( "-1" );
-      }
+      content += String( ledIndex != 0 ? "," : "" ) + "\"" + String( ledIndex ) + "\":" + String( alarmStatus == RAID_ALARM_STATUS_INACTIVE ? ( showOnlyActiveAlarms ? "-1" : "0" ) : ( alarmStatus == RAID_ALARM_STATUS_ACTIVE ? "1" : "-1" ) );
     }
-    content.concat( "}" );
+    content += "}";
     wifiWebServer.send( 200, getContentType( F("json") ), content );
     return;
   }
 
   String anchorId = wifiWebServer.arg("id");
   String mapId = anchorId == "" ? F("map") : anchorId;
-  String content = "";
-  if( anchorId == "" ) {
-    content.concat( F("<div id=\"") ); content.concat( mapId ); content.concat( F("\"><script>") );
-  }
-  content.concat( F("function initMap(){"
-    "let ae=document.querySelector('#") ); content.concat( mapId ); content.concat( F("');"
+  String content = ( anchorId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
+  String( F("function initMap(){"
+    "let ae=document.querySelector('#") ) + mapId + String( F("');"
     "if(!ae)return;"
     "let aes=document.createElement('style');"
-    "aes.textContent='") );
-
-  if( anchorId == "" ) {
-    content.concat( F( ".wrp{width:94%;max-width:calc(147vh - 147px);}" ) );
-  }
-  content.concat( F("#") ); content.concat( mapId ); content.concat( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((680/1000)*100%);}"
-  "#") ); content.concat( mapId ); content.concat( F(" img.map{z-index:1;}"
-  "#") ); content.concat( mapId ); content.concat( F(" img{position:absolute;display:block;width:100%;top:0;}"
-  "#") ); content.concat( mapId ); content.concat( F(" .mapl{position:absolute;z-index:2;top:0;cursor:default;line-height:1;font-size:") );
-  if( anchorId == "" ) {
-    content.concat( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") );
-  } else {
-    content.concat( F("max(6.18px,calc(min(60vw,600px)/76))") );
-  }
-  content.concat( F(";}"
-  "#") ); content.concat( mapId ); content.concat( F(" .mapp{position:absolute;z-index:2;top:0;cursor:default;background:#A1A1A1;border-radius:50%;transform:translate(-50%,-50%);width:") );
-  if( anchorId == "" ) {
-    content.concat( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") );
-  } else {
-    content.concat( F("max(6.18px,calc(min(60vw,600px)/76))") );
-  }
-  content.concat( F(";height:") );
-  if( anchorId == "" ) {
-    content.concat( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") );
-  } else {
-    content.concat( F("max(6.18px,calc(min(60vw,600px)/76))") );
-  }
-  content.concat( F(";}"
-  "@media(max-device-width:800px) and (orientation:portrait){"
-    "#") ); content.concat( mapId ); content.concat( F(" .mapl{font-size:calc(94vw/76);}"
-    "#") ); content.concat( mapId ); content.concat( F(" .mapp{width:calc(94vw/76);height:calc(94vw/76);}"
-  "}"
+    "aes.textContent='") ) +
+      ( anchorId == "" ? String( F( ".wrp{width:94%;max-width:calc(147vh - 147px);}" ) ) : "" ) + String( F(""
+      "#") ) + mapId + String( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((680/1000)*100%);}"
+      "#") ) + mapId + String( F(" img.map{z-index:1;}"
+      "#") ) + mapId + String( F(" img{position:absolute;display:block;width:100%;top:0;}"
+      "#") ) + mapId + String( F(" .mapl{position:absolute;z-index:2;top:0;cursor:default;line-height:1;font-size:") ) + ( anchorId == "" ? String( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") ) : String( F("max(6.18px,calc(min(60vw,600px)/76))") ) ) + String( F(";}"
+      "#") ) + mapId + String( F(" .mapp{position:absolute;z-index:2;top:0;cursor:default;background:#A1A1A1;border-radius:50%;transform:translate(-50%,-50%);width:") ) + ( anchorId == "" ? String( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") ) : String( F("max(6.18px,calc(min(60vw,600px)/76))") ) ) + String( F(";height:") ) + ( anchorId == "" ? String( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") ) : String( F("max(6.18px,calc(min(60vw,600px)/76))") ) ) + String( F(";}"
+      "@media(max-device-width:800px) and (orientation:portrait){"
+        "#") ) + mapId + String( F(" .mapl{font-size:calc(94vw/76);}"
+        "#") ) + mapId + String( F(" .mapp{width:calc(94vw/76);height:calc(94vw/76);}"
+      "}"
     "';"
     "ae.appendChild(aes);"
-    "ae.innerHTML+='") );
-
-  if( anchorId == "" ) {
-    content.concat( F("<a href=\"/\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати налаштування</a>") );
-  } else {
-    content.concat( F("<a href=\"") ); content.concat( HTML_PAGE_MAP_ENDPOINT ); content.concat( F("\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати мапу</a>") );
-  }
-  content.concat( F("<div>"
-    "<div class=\"mapl\" style=\"top:46.7%;left:3.0%;\">УЖГОРОД</div>"
-    "<div class=\"mapl\" style=\"top:25.1%;left:10.5%;\">ЛЬВІВ</div>"
-    "<div class=\"mapl\" style=\"top:13.1%;left:16.9%;\">ЛУЦЬК</div>"
-    "<div class=\"mapl\" style=\"top:17.0%;left:24.2%;\">РІВНЕ</div>"
-    "<div class=\"mapl\" style=\"top:28.8%;left:23.9%;\">&nbsp;&nbsp;ХМЕЛЬ-<br>НИЦЬКИЙ</div>"
-    "<div class=\"mapl\" style=\"top:35.9%;left:15.7%;\">ТЕРНОПІЛЬ</div>"
-    "<div class=\"mapl\" style=\"top:43.3%;left:11.1%;\">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ІВАНО-<br>ФРАНКІВСЬК</div>"
-    "<div class=\"mapl\" style=\"top:48.3%;left:19.5%;\">ЧЕРНІВЦІ</div>"
-    "<div class=\"mapl\" style=\"top:43.8%;left:34.4%;\">ВІННИЦЯ</div>"
-    "<div class=\"mapl\" style=\"top:22.4%;left:32.3%;\">ЖИТОМИР</div>"
-    "<div class=\"mapl\" style=\"top:20.2%;left:43.8%;\">КИЇВ</div>"
-    "<div class=\"mapl\" style=\"top:13.7%;left:50.0%;\">ЧЕРНІГІВ</div>"
-    "<div class=\"mapl\" style=\"top:20.5%;left:67.3%;\">СУМИ</div>"
-    "<div class=\"mapl\" style=\"top:30.6%;left:75.3%;\">ХАРКІВ</div>"
-    "<div class=\"mapl\" style=\"top:35.4%;left:89.8%;\">ЛУГАНСЬК</div>"
-    "<div class=\"mapl\" style=\"top:45.5%;left:83.1%;\">ДОНЕЦЬК</div>"
-    "<div class=\"mapl\" style=\"top:59.5%;left:73.0%;\">ЗАПОРІЖЖЯ</div>"
-    "<div class=\"mapl\" style=\"top:44.1%;left:69.2%;\">ДНІПРО</div>"
-    "<div class=\"mapl\" style=\"top:35.5%;left:63.2%;\">ПОЛТАВА</div>"
-    "<div class=\"mapl\" style=\"top:33.3%;left:51.1%;\">ЧЕРКАСИ</div>"
-    "<div class=\"mapl\" style=\"top:45.7%;left:54.3%;\">КІРОВОГРАД</div>"
-    "<div class=\"mapl\" style=\"top:62.7%;left:52.9%;\">МИКОЛАЇВ</div>"
-    "<div class=\"mapl\" style=\"top:68.3%;left:44.5%;\">ОДЕСА</div>"
-    "<div class=\"mapl\" style=\"top:87.7%;left:64.2%;\">СІМФЕРОПОЛЬ</div>"
-    "<div class=\"mapl\" style=\"top:74.7%;left:59.2%;\">ХЕРСОН</div>"
-  "</div>"
-  "<div>"
-    "<div class=\"mapp\" style=\"top:44.1%;left:3.0%;\"></div>"
-    "<div class=\"mapp\" style=\"top:29.4%;left:11.5%;\"></div>"
-    "<div class=\"mapp\" style=\"top:17.4%;left:18.2%;\"></div>"
-    "<div class=\"mapp\" style=\"top:21.3%;left:24.7%;\"></div>"
-    "<div class=\"mapp\" style=\"top:35.3%;left:27.2%;\"></div>"
-    "<div class=\"mapp\" style=\"top:33.3%;left:20.0%;\"></div>"
-    "<div class=\"mapp\" style=\"top:40.6%;left:14.5%;\"></div>"
-    "<div class=\"mapp\" style=\"top:52.5%;left:21.2%;\"></div>"
-    "<div class=\"mapp\" style=\"top:41.2%;left:36.0%;\"></div>"
-    "<div class=\"mapp\" style=\"top:26.8%;left:37.2%;\"></div>"
-    "<div class=\"mapp\" style=\"top:24.6%;left:46.8%;\"></div>"
-    "<div class=\"mapp\" style=\"top:11.1%;left:51.3%;\"></div>"
-    "<div class=\"mapp\" style=\"top:17.9%;left:68.5%;\"></div>"
-    "<div class=\"mapp\" style=\"top:28.0%;left:76.3%;\"></div>"
-    "<div class=\"mapp\" style=\"top:39.7%;left:94.8%;\"></div>"
-    "<div class=\"mapp\" style=\"top:49.8%;left:87.3%;\"></div>"
-    "<div class=\"mapp\" style=\"top:56.9%;left:74.2%;\"></div>"
-    "<div class=\"mapp\" style=\"top:48.4%;left:70.5%;\"></div>"
-    "<div class=\"mapp\" style=\"top:32.9%;left:67.2%;\"></div>"
-    "<div class=\"mapp\" style=\"top:37.6%;left:54.3%;\"></div>"
-    "<div class=\"mapp\" style=\"top:50.0%;left:56.3%;\"></div>"
-    "<div class=\"mapp\" style=\"top:67.0%;left:55.2%;\"></div>"
-    "<div class=\"mapp\" style=\"top:72.7%;left:47.2%;\"></div>"
-    "<div class=\"mapp\" style=\"top:92.0%;left:69.5%;\"></div>"
-    "<div class=\"mapp\" style=\"top:72.1%;left:60.5%;\"></div>"
-  "</div>"
+    "ae.innerHTML+='") ) +
+      ( anchorId == "" ? String( F("<a href=\"/\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати налаштування</a>") ) : String( F("<a href=\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати мапу</a>") ) ) + String( F(""
+      "<div>"
+        "<div class=\"mapl\" style=\"top:46.7%;left:3.0%;\">УЖГОРОД</div>"
+        "<div class=\"mapl\" style=\"top:25.1%;left:10.5%;\">ЛЬВІВ</div>"
+        "<div class=\"mapl\" style=\"top:13.1%;left:16.9%;\">ЛУЦЬК</div>"
+        "<div class=\"mapl\" style=\"top:17.0%;left:24.2%;\">РІВНЕ</div>"
+        "<div class=\"mapl\" style=\"top:28.8%;left:23.9%;\">&nbsp;&nbsp;ХМЕЛЬ-<br>НИЦЬКИЙ</div>"
+        "<div class=\"mapl\" style=\"top:35.9%;left:15.7%;\">ТЕРНОПІЛЬ</div>"
+        "<div class=\"mapl\" style=\"top:43.3%;left:11.1%;\">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ІВАНО-<br>ФРАНКІВСЬК</div>"
+        "<div class=\"mapl\" style=\"top:48.3%;left:19.5%;\">ЧЕРНІВЦІ</div>"
+        "<div class=\"mapl\" style=\"top:43.8%;left:34.4%;\">ВІННИЦЯ</div>"
+        "<div class=\"mapl\" style=\"top:22.4%;left:32.3%;\">ЖИТОМИР</div>"
+        "<div class=\"mapl\" style=\"top:20.2%;left:43.8%;\">КИЇВ</div>"
+        "<div class=\"mapl\" style=\"top:13.7%;left:50.0%;\">ЧЕРНІГІВ</div>"
+        "<div class=\"mapl\" style=\"top:20.5%;left:67.3%;\">СУМИ</div>"
+        "<div class=\"mapl\" style=\"top:30.6%;left:75.3%;\">ХАРКІВ</div>"
+        "<div class=\"mapl\" style=\"top:35.4%;left:89.8%;\">ЛУГАНСЬК</div>"
+        "<div class=\"mapl\" style=\"top:45.5%;left:83.1%;\">ДОНЕЦЬК</div>"
+        "<div class=\"mapl\" style=\"top:59.5%;left:73.0%;\">ЗАПОРІЖЖЯ</div>"
+        "<div class=\"mapl\" style=\"top:44.1%;left:69.2%;\">ДНІПРО</div>"
+        "<div class=\"mapl\" style=\"top:35.5%;left:63.2%;\">ПОЛТАВА</div>"
+        "<div class=\"mapl\" style=\"top:33.3%;left:51.1%;\">ЧЕРКАСИ</div>"
+        "<div class=\"mapl\" style=\"top:45.7%;left:54.3%;\">КІРОВОГРАД</div>"
+        "<div class=\"mapl\" style=\"top:62.7%;left:52.9%;\">МИКОЛАЇВ</div>"
+        "<div class=\"mapl\" style=\"top:68.3%;left:44.5%;\">ОДЕСА</div>"
+        "<div class=\"mapl\" style=\"top:87.7%;left:64.2%;\">СІМФЕРОПОЛЬ</div>"
+        "<div class=\"mapl\" style=\"top:74.7%;left:59.2%;\">ХЕРСОН</div>"
+      "</div>"
+      "<div>"
+        "<div class=\"mapp\" style=\"top:44.1%;left:3.0%;\"></div>"
+        "<div class=\"mapp\" style=\"top:29.4%;left:11.5%;\"></div>"
+        "<div class=\"mapp\" style=\"top:17.4%;left:18.2%;\"></div>"
+        "<div class=\"mapp\" style=\"top:21.3%;left:24.7%;\"></div>"
+        "<div class=\"mapp\" style=\"top:35.3%;left:27.2%;\"></div>"
+        "<div class=\"mapp\" style=\"top:33.3%;left:20.0%;\"></div>"
+        "<div class=\"mapp\" style=\"top:40.6%;left:14.5%;\"></div>"
+        "<div class=\"mapp\" style=\"top:52.5%;left:21.2%;\"></div>"
+        "<div class=\"mapp\" style=\"top:41.2%;left:36.0%;\"></div>"
+        "<div class=\"mapp\" style=\"top:26.8%;left:37.2%;\"></div>"
+        "<div class=\"mapp\" style=\"top:24.6%;left:46.8%;\"></div>"
+        "<div class=\"mapp\" style=\"top:11.1%;left:51.3%;\"></div>"
+        "<div class=\"mapp\" style=\"top:17.9%;left:68.5%;\"></div>"
+        "<div class=\"mapp\" style=\"top:28.0%;left:76.3%;\"></div>"
+        "<div class=\"mapp\" style=\"top:39.7%;left:94.8%;\"></div>"
+        "<div class=\"mapp\" style=\"top:49.8%;left:87.3%;\"></div>"
+        "<div class=\"mapp\" style=\"top:56.9%;left:74.2%;\"></div>"
+        "<div class=\"mapp\" style=\"top:48.4%;left:70.5%;\"></div>"
+        "<div class=\"mapp\" style=\"top:32.9%;left:67.2%;\"></div>"
+        "<div class=\"mapp\" style=\"top:37.6%;left:54.3%;\"></div>"
+        "<div class=\"mapp\" style=\"top:50.0%;left:56.3%;\"></div>"
+        "<div class=\"mapp\" style=\"top:67.0%;left:55.2%;\"></div>"
+        "<div class=\"mapp\" style=\"top:72.7%;left:47.2%;\"></div>"
+        "<div class=\"mapp\" style=\"top:92.0%;left:69.5%;\"></div>"
+        "<div class=\"mapp\" style=\"top:72.1%;left:60.5%;\"></div>"
+      "</div>"
     "';"
     "let map=ae.querySelector('.map');"
     "if(!map){"
       "map=document.createElement('img');"
       "map.classList.add('map');"
-      "map.setAttribute('src','") ); content.concat( HTML_PAGE_MAP_ENDPOINT ); content.concat( F("?f=map.svg');"
+      "map.setAttribute('src','") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f=map.svg');"
       "ae.appendChild(map);"
     "}"
     "setInterval(()=>{"
@@ -3200,15 +3194,15 @@ void handleWebServerGetMap() {
   "}"
   "function updateMap(){"
     "let xhr=new XMLHttpRequest();"
-    "xhr.open(\"GET\",\"") ); content.concat( HTML_PAGE_MAP_ENDPOINT ); content.concat( F("?d=1\",true);"
+    "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?d=1\",true);"
     "xhr.onload=(e)=>{"
       "if(xhr.readyState===4&&xhr.status===200){"
         "let data=JSON.parse(xhr.responseText);"
         "Object.entries(data).forEach(([region,status])=>{"
-          "let ae=document.querySelector('#") ); content.concat( mapId ); content.concat( F("');"
+          "let ae=document.querySelector('#") ) + mapId + String( F("');"
           "if(!ae)return;"
           "let mapc='map'+region;"
-          "let mapl='") ); content.concat( HTML_PAGE_MAP_ENDPOINT ); content.concat( F("?f='+'map_'+region+(status==1?'_1':status==0?'_0':'')+'.gif';"
+          "let mapl='") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f='+'map_'+region+(status==1?'_1':status==0?'_0':'')+'.gif';"
           "let map=ae.querySelector('img.'+mapc);"
           "if(!map){"
             "map=document.createElement('img');"
@@ -3223,10 +3217,8 @@ void handleWebServerGetMap() {
     "};"
     "xhr.send(null);"
   "}"
-  "initMap();") );
-  if( anchorId == "" ) {
-    content.concat( F("</script></div>") );
-  }
+  "initMap();") ) +
+  ( anchorId == "" ? String( F("</script></div>") ) : "" );
 
   if( anchorId == "" ) {
     content = getHtmlPage( content );
@@ -3237,7 +3229,7 @@ void handleWebServerGetMap() {
 }
 
 void handleWebServerGetFavIcon() {
-  File file = LittleFS.open( F("/favicon.ico"), "r" );
+  File file = getFileFromFlash( F("favicon.ico") );
   if( !file ) {
     wifiWebServer.send( 404, getContentType( F("txt") ), F("File not found") );
   } else {
@@ -3378,13 +3370,13 @@ void loop() {
       break;
   }
 
-  beeperProcessLoopTick();
-
   if( isFirstLoopRun || ( calculateDiffMillis( previousMillisLedAnimation, millis() ) >= DELAY_DISPLAY_ANIMATION ) ) {
     previousMillisLedAnimation = millis();
     setStripStatus();
     renderStrip();
   }
+
+  beeperProcessLoopTick();
 
   isFirstLoopRun = false;
   delay(2); //https://www.tablix.org/~avian/blog/archives/2022/08/saving_power_on_an_esp8266_web_server_using_delays/
