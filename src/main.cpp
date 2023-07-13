@@ -2514,20 +2514,20 @@ const char HTML_PAGE_END[] PROGMEM = "</div>"
   "</body>"
 "</html>";
 
-String getHtmlPage( String pageBody ) {
-  String result;
-  result.reserve( strlen_P(HTML_PAGE_START) + pageBody.length() + strlen_P(HTML_PAGE_END) + 1 );
+void addHtmlPageStart( String& pageBody ) {
   char c;
   for( uint16_t i = 0; i < strlen_P(HTML_PAGE_START); i++ ) {
     c = pgm_read_byte( &HTML_PAGE_START[i] );
-    result += c;
+    pageBody += c;
   }
-  result += pageBody;
+}
+
+void addHtmlPageEnd( String& pageBody ) {
+  char c;
   for( uint16_t i = 0; i < strlen_P(HTML_PAGE_END); i++ ) {
     c = pgm_read_byte( &HTML_PAGE_END[i] );
-    result += c;
+    pageBody += c;
   }
-  return result;
 }
 
 String getHtmlLink( const char* href, String label ) {
@@ -2594,8 +2594,9 @@ const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 const char* HTML_PAGE_HOME_REGION_NAME = "hmr";
 
 void handleWebServerGet() {
-  String content = getHtmlPage(
-    ( isApInitialized ? "" : ( String( F("<script>"
+  String content;
+  addHtmlPageStart( content );
+  content += ( isApInitialized ? "" : ( String( F("<script>"
     "document.addEventListener(\"DOMContentLoaded\",()=>{"
       "let xhr=new XMLHttpRequest();"
       "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?id=map\",true);"
@@ -2716,7 +2717,8 @@ void handleWebServerGet() {
       "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Перезавантажити") ) + String( F("</span>"
     "</span>"
   "</div>"
-"</div>") ) );
+"</div>") );
+  addHtmlPageEnd( content );
 
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
@@ -2759,29 +2761,39 @@ String getHtmlPageFillup( String animationLength, String redirectLength ) {
 }
 
 void handleWebServerPost() {
+  String content;
+
   String htmlPageSsidNameReceived = wifiWebServer.arg( HTML_PAGE_WIFI_SSID_NAME );
   String htmlPageSsidPasswordReceived = wifiWebServer.arg( HTML_PAGE_WIFI_PWD_NAME );
 
   if( htmlPageSsidNameReceived.length() == 0 ) {
-    String content = getHtmlPage( String( F("<h2>Error: Missing SSID Name</h2>") ) );
+    addHtmlPageStart( content );
+    content += String( F("<h2>Error: Missing SSID Name</h2>") );
+    addHtmlPageEnd( content );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
     wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
   if( htmlPageSsidPasswordReceived.length() == 0 ) {
-    String content = getHtmlPage( String( F("<h2>Error: Missing SSID Password</h2>") ) );
+    addHtmlPageStart( content );
+    content += String( F("<h2>Error: Missing SSID Password</h2>") );
+    addHtmlPageEnd( content );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
     wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
   if( htmlPageSsidNameReceived.length() > getWiFiClientSsidNameMaxLength() ) {
-    String content = getHtmlPage( String( F("<h2>Error: SSID Name exceeds maximum length of ") ) + String( getWiFiClientSsidNameMaxLength() ) + String( F("</h2>") ) );
+    addHtmlPageStart( content );
+    content += String( F("<h2>Error: SSID Name exceeds maximum length of ") ) + String( getWiFiClientSsidNameMaxLength() ) + String( F("</h2>") );
+    addHtmlPageEnd( content );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
     wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
   if( htmlPageSsidPasswordReceived.length() > getWiFiClientSsidPasswordMaxLength() ) {
-    String content = getHtmlPage( String( F("<h2>Error: SSID Password exceeds maximum length of ") ) + String( getWiFiClientSsidPasswordMaxLength() ) + String( F("</h2>") ) );
+    addHtmlPageStart( content );
+    content += String( F("<h2>Error: SSID Password exceeds maximum length of ") ) + String( getWiFiClientSsidPasswordMaxLength() ) + String( F("</h2>") );
+    addHtmlPageEnd( content );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
     wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
@@ -2878,7 +2890,9 @@ void handleWebServerPost() {
   bool isDataSourceChanged = raidAlarmServerReceivedPopulated && raidAlarmServerReceived != currentRaidAlarmServer;
 
   String waitTime = isWiFiChanged ? String(TIMEOUT_CONNECT_WEB/1000 + 6) : ( isDataSourceChanged ? "4" : "2" );
-  String content = getHtmlPage( getHtmlPageFillup( waitTime, waitTime ) + String( F("<h2>Зберігаю...</h2>") ) );
+  addHtmlPageStart( content );
+  content += getHtmlPageFillup( waitTime, waitTime ) + String( F("<h2>Зберігаю...</h2>") );
+  addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
 
@@ -3023,7 +3037,10 @@ void handleWebServerPost() {
 }
 
 void handleWebServerGetTestNight() {
-  String content = getHtmlPage( getHtmlPageFillup( "6", "6" ) + String( F("<h2>Testing Night Mode...</h2>") ) );
+  String content;
+  addHtmlPageStart( content );
+  content += getHtmlPageFillup( "6", "6" ) + String( F("<h2>Testing Night Mode...</h2>") );
+  addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
     isNightModeTest = true;
@@ -3036,7 +3053,10 @@ void handleWebServerGetTestNight() {
 }
 
 void handleWebServerGetTestLeds() {
-  String content = getHtmlPage( getHtmlPageFillup( String(STRIP_LED_COUNT), String( STRIP_LED_COUNT + 1 ) ) + String( F("<h2>Testing LEDs...</h2>") ) );
+  String content;
+  addHtmlPageStart( content );
+  content += getHtmlPageFillup( String(STRIP_LED_COUNT), String( STRIP_LED_COUNT + 1 ) ) + String( F("<h2>Testing LEDs...</h2>") );
+  addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
   for( uint8_t ledIndex = 0; ledIndex < STRIP_LED_COUNT; ledIndex++ ) {
@@ -3059,7 +3079,10 @@ void handleWebServerGetTestLeds() {
 }
 
 void handleWebServerGetReboot() {
-  String content = getHtmlPage( getHtmlPageFillup( "9", "9" ) + String( F("<h2>Rebooting...</h2>") ) );
+  String content;
+  addHtmlPageStart( content );
+  content += getHtmlPageFillup( "9", "9" ) + String( F("<h2>Rebooting...</h2>") );
+  addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
   delay( 200 );
@@ -3090,9 +3113,11 @@ void handleWebServerGetMap() {
     return;
   }
 
+  String content;
+
   String dataSet = wifiWebServer.arg("d");
   if( dataSet != "" ) {
-    String content = "{";
+    content += "{";
     const std::vector<std::vector<const char*>>& allRegions = getRegions();
     for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
       int8_t alarmStatus = getRegionStatusByLedIndex( ledIndex, allRegions );
@@ -3105,7 +3130,12 @@ void handleWebServerGetMap() {
 
   String anchorId = wifiWebServer.arg("id");
   String mapId = anchorId == "" ? F("map") : anchorId;
-  String content = ( anchorId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
+
+  if( anchorId == "" ) {
+    addHtmlPageStart( content );
+  }
+
+  content += ( anchorId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
   String( F("function initMap(){"
     "let ae=document.querySelector('#") ) + mapId + String( F("');"
     "if(!ae)return;"
@@ -3221,7 +3251,10 @@ void handleWebServerGetMap() {
   ( anchorId == "" ? String( F("</script></div>") ) : "" );
 
   if( anchorId == "" ) {
-    content = getHtmlPage( content );
+    addHtmlPageEnd( content );
+  }
+
+  if( anchorId == "" ) {
     wifiWebServer.send( 200, getContentType( F("html") ), content );
   } else {
     wifiWebServer.send( 200, getContentType( F("js") ), content );
