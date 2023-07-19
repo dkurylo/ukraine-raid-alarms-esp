@@ -1917,6 +1917,7 @@ void uaRetrieveAndProcessServerData() {
   unsigned long processingTimeStartMillis = millis();
   Serial.print( String( F("Retrieving data..... heap: ") ) + String( ESP.getFreeHeap() ) );
   int16_t httpCode = httpClient.GET();
+  bool isSuccess = false;
 
   if( httpCode > 0 ) {
     if( httpCode == 200 ) {
@@ -2162,6 +2163,7 @@ void uaRetrieveAndProcessServerData() {
       } else {
         setStripStatus( STRIP_STATUS_OK );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
+        isSuccess = true;
       }
     } else if( httpCode == 304 ) {
       setStripStatus( STRIP_STATUS_OK );
@@ -2193,7 +2195,7 @@ void uaRetrieveAndProcessServerData() {
     uaProcessServerData( regionToAlarmStatus );
   }
 
-  if( uaLastActionHash == 0 ) { //at the beginning, we should retrieve the last update hash code for future checks, even after we receive the data
+  if( isSuccess && uaLastActionHash == 0 ) { //at the beginning, we should retrieve the last update hash code for future checks, even after we receive the data
     uaRetrieveAndProcessStatusChangedData( wiFiClient );
   }
 }
@@ -3039,7 +3041,7 @@ void handleWebServerPost() {
 void handleWebServerGetTestNight() {
   String content;
   addHtmlPageStart( content );
-  content += getHtmlPageFillup( "6", "6" ) + String( F("<h2>Testing Night Mode...</h2>") );
+  content += getHtmlPageFillup( "6", "6" ) + String( F("<h2>Перевіряю нічний режим...</h2>") );
   addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
@@ -3055,7 +3057,7 @@ void handleWebServerGetTestNight() {
 void handleWebServerGetTestLeds() {
   String content;
   addHtmlPageStart( content );
-  content += getHtmlPageFillup( String(STRIP_LED_COUNT), String( STRIP_LED_COUNT + 1 ) ) + String( F("<h2>Testing LEDs...</h2>") );
+  content += getHtmlPageFillup( String(STRIP_LED_COUNT), String( STRIP_LED_COUNT + 1 ) ) + String( F("<h2>Перевіряю діоди...</h2>") );
   addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
@@ -3081,7 +3083,7 @@ void handleWebServerGetTestLeds() {
 void handleWebServerGetReboot() {
   String content;
   addHtmlPageStart( content );
-  content += getHtmlPageFillup( "9", "9" ) + String( F("<h2>Rebooting...</h2>") );
+  content += getHtmlPageFillup( "9", "9" ) + String( F("<h2>Перезавантажуюсь...</h2>") );
   addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
