@@ -371,30 +371,6 @@ int8_t getRegionStatusByLedIndex( const int8_t& ledIndex, const std::vector<std:
   return alarmStatus;
 }
 
-void initMaps() {
-  /*uint8_t reservedNumberOfRegions = 25;
-  transitionAnimations.reserve( reservedNumberOfRegions );
-  for( size_t i = 0; i < reservedNumberOfRegions; ++i ) {
-    uint8_t reservedNumberOfTranstionAnimations = 18;
-    std::vector<std::vector<uint8_t>> reservedTranstionAnimation;
-    reservedTranstionAnimation.reserve(reservedNumberOfTranstionAnimations);
-    for( size_t j = 0; j < reservedNumberOfTranstionAnimations; ++j ) {
-      std::vector<uint8_t> transitionAnimationColor;
-      transitionAnimationColor.reserve(3); //reserve memory for each color (r, g, b)
-      reservedTranstionAnimation.push_back( std::move( transitionAnimationColor ) );
-    }
-    transitionAnimations.push_back( std::move( reservedTranstionAnimation ) );
-  }
-
-  uint8_t reservedNumberOfBeeps = 24; //reserve memory for this number of beeps to avoid heap fragmentation
-  beeperBeeps.reserve( reservedNumberOfBeeps );
-  for( size_t i = 0; i < reservedNumberOfBeeps; ++i ) {
-    std::vector<uint16_t> reservedBeep;
-    reservedBeep.reserve(2); //reserve memory for each beep (beep length and beep on/off status)
-    beeperBeeps.push_back( std::move( reservedBeep ) );
-  }*/
-}
-
 void initAlarmStatus() {
   regionNameToRaidAlarmStatus.clear();
   transitionAnimations.clear();
@@ -870,7 +846,6 @@ void signalAlertnessLevelIncrease() {
   if( alertLevel == -1 ) return;
   Serial.println( String( F("Alertness level up to ") ) + String( alertLevel ) + ( alertLevel == 0 ? String( F(" (alarm in home region)") ) : F(" (alarm in neighboring regions)") ) );
 
-  //when changing the number of items inserted, please reserve the correct amount of memory for these items in initMaps() method and ensure the longest sequance fits to the memory reserved
   if( alertLevel == 0 ) {
     if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
     beeperBeeps.insert( beeperBeeps.end(), {
@@ -1435,7 +1410,6 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
   if( oldAlarmStatusForRegionGroup != RAID_ALARM_STATUS_UNINITIALIZED && isStatusChanged ) {
     std::vector<std::vector<uint8_t>>& transitionAnimation = transitionAnimations[ledIndex];
     
-    //when changing the number of items inserted, please reserve the correct amount of memory for these items in initMaps() method and ensure the longest sequance fits to the memory reserved
     if( isAlarmEnabled ) {
       transitionAnimation.insert(
         transitionAnimation.end(),
@@ -3325,7 +3299,6 @@ void setup() {
   Serial.println();
   Serial.println( String( F("Air Raid Alarm Monitor by Dmytro Kurylo. V@") ) + getFirmwareVersion() + String( F(" CPU@") ) + String( ESP.getCpuFreqMHz() ) );
 
-  initMaps();
   initBeeper();
   initInternalLed();
   initEeprom();
