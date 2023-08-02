@@ -48,7 +48,7 @@ const uint8_t STRIP_PIN = 0;
 #else //ESP32 or ESP32S2
 const uint8_t STRIP_PIN = 18;
 #endif
-const uint16_t DELAY_DISPLAY_ANIMATION = 100; //led animation speed, in ms
+const uint16_t DELAY_DISPLAY_ANIMATION = 250; //led animation speed, in ms
 
 //addressable led strip status led colors confg
 const uint8_t STRIP_STATUS_BLACK = 0;
@@ -76,7 +76,7 @@ const uint16_t DELAY_INTERNAL_LED_ANIMATION_LOW = 59800;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
 
 //brightness settings
-const uint16_t DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK = 50;
+const uint16_t DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK = 100;
 const uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 20;
 const uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 110;
 
@@ -369,6 +369,30 @@ int8_t getRegionStatusByLedIndex( const int8_t& ledIndex, const std::vector<std:
     alarmStatus = regionAlarmStatus;
   }
   return alarmStatus;
+}
+
+void initMaps() {
+  /*uint8_t reservedNumberOfRegions = 25;
+  transitionAnimations.reserve( reservedNumberOfRegions );
+  for( size_t i = 0; i < reservedNumberOfRegions; ++i ) {
+    uint8_t reservedNumberOfTranstionAnimations = 18;
+    std::vector<std::vector<uint8_t>> reservedTranstionAnimation;
+    reservedTranstionAnimation.reserve(reservedNumberOfTranstionAnimations);
+    for( size_t j = 0; j < reservedNumberOfTranstionAnimations; ++j ) {
+      std::vector<uint8_t> transitionAnimationColor;
+      transitionAnimationColor.reserve(3); //reserve memory for each color (r, g, b)
+      reservedTranstionAnimation.push_back( std::move( transitionAnimationColor ) );
+    }
+    transitionAnimations.push_back( std::move( reservedTranstionAnimation ) );
+  }
+
+  uint8_t reservedNumberOfBeeps = 24; //reserve memory for this number of beeps to avoid heap fragmentation
+  beeperBeeps.reserve( reservedNumberOfBeeps );
+  for( size_t i = 0; i < reservedNumberOfBeeps; ++i ) {
+    std::vector<uint16_t> reservedBeep;
+    reservedBeep.reserve(2); //reserve memory for each beep (beep length and beep on/off status)
+    beeperBeeps.push_back( std::move( reservedBeep ) );
+  }*/
 }
 
 void initAlarmStatus() {
@@ -846,13 +870,14 @@ void signalAlertnessLevelIncrease() {
   if( alertLevel == -1 ) return;
   Serial.println( String( F("Alertness level up to ") ) + String( alertLevel ) + ( alertLevel == 0 ? String( F(" (alarm in home region)") ) : F(" (alarm in neighboring regions)") ) );
 
+  //when changing the number of items inserted, please reserve the correct amount of memory for these items in initMaps() method and ensure the longest sequance fits to the memory reserved
   if( alertLevel == 0 ) {
     if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
     beeperBeeps.insert( beeperBeeps.end(), {
       { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 },
-      { 200, 0 },
+      { 300, 0 },
       { 400, 1 }, { 100, 0 }, { 400, 1 }, { 100, 0 }, { 400, 1 },
-      { 200, 0 },
+      { 300, 0 },
       { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 } } );
   } else if( alertLevel == 1 ) {
     if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
@@ -874,6 +899,7 @@ void signalAlertnessLevelIncrease() {
 
 void signalAlertnessLevelDecrease() {
   Serial.println( String( F("Alertness level down to ") ) + String( alertLevel ) + ( alertLevel == -1 ? String( F(" (not dangerous)") ) : F(" (alarm in neighboring regions)") ) );
+
   if( alertLevel == 1 ) {
     if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
     beeperBeeps.insert( beeperBeeps.end(), {
@@ -1316,18 +1342,23 @@ const String getWiFiStatusText( wl_status_t status ) {
 }
 
 void disconnectFromWiFi( bool erasePreviousCredentials ) {
+  unsigned long wiFiConnectDotDelayStartedMillis = millis();
   wl_status_t wifiStatus = WiFi.status();
   if( wifiStatus != WL_DISCONNECTED && wifiStatus != WL_IDLE_STATUS ) {
     Serial.print( String( F("Disconnecting from WiFi '") ) + WiFi.SSID() + String( F("'...") ) );
     uint8_t previousInternalLedStatus = getInternalLedStatus();
     setInternalLedStatus( HIGH );
     WiFi.disconnect( false, erasePreviousCredentials );
-    delay( 10 );
     while( true ) {
       wifiStatus = WiFi.status();
-      if( wifiStatus == WL_DISCONNECTED || wifiStatus == WL_IDLE_STATUS ) break;
-      delay( 500 );
-      Serial.print( "." );
+      if( wifiStatus == WL_DISCONNECTED || wifiStatus == WL_IDLE_STATUS ) {
+        break;
+      }
+      if( calculateDiffMillis( wiFiConnectDotDelayStartedMillis, millis() ) >= 500 ) {
+        Serial.print( "." );
+        wiFiConnectDotDelayStartedMillis = millis();
+      }
+      yield();
     }
     Serial.println( F(" done") );
     setInternalLedStatus( previousInternalLedStatus );
@@ -1335,78 +1366,58 @@ void disconnectFromWiFi( bool erasePreviousCredentials ) {
 }
 
 
-void connectToWiFi( bool forceConnect, bool tryNewCredentials ) { //wifi creds are automatically stored in NVM when WiFi.begin( ssid, pwd ) is used, and automatically read from NVM if WiFi.begin() is used
+void connectToWiFi( bool forceReconnect ) {
   if( strlen(wiFiClientSsid) == 0 ) {
     createAccessPoint();
     return;
   }
 
-  if( forceConnect || tryNewCredentials || ( !isApInitialized && !WiFi.isConnected() ) ) {
-    Serial.print( String( F("Connecting to WiFi '") ) + String( wiFiClientSsid ) + String( F("'...") ) );
-    WiFi.hostname( ( String( getWiFiHostName() ) + "-" + String( ESP.getChipId() ) ).c_str() );
-    if( tryNewCredentials || ( !isApInitialized && !WiFi.isConnected() ) ) {
-      WiFi.begin( wiFiClientSsid, wiFiClientPassword ); //when calling WiFi.begin( ssid, pwd ), credentials are stored in NVM, no matter if they are the same or differ
-    } else {
-      WiFi.begin(); //when you don't expect credentials to be changed, you need to connect using WiFi.begin() which will load already stored creds from NVM in order to save NVM duty cycles
-    }
-  }
-
-  if( WiFi.isConnected() ) {
-    if( forceConnect || tryNewCredentials ) {
-      Serial.println( F(" done") );
-    }
-    shutdownAccessPoint();
+  if( isApInitialized || ( !forceReconnect && WiFi.isConnected() ) ) {
     return;
   }
 
-  if( forceConnect || tryNewCredentials ) { //wait
-    unsigned long wiFiConnectStartedMillis = millis();
-    uint8_t previousInternalLedStatus = getInternalLedStatus();
-    while( true ) {
-      renderStripStatus( STRIP_STATUS_WIFI_CONNECTING );
-      setInternalLedStatus( HIGH );
-      delay( 1000 );
+  disconnectFromWiFi( false );
+
+  Serial.print( String( F("Connecting to WiFi '") ) + String( wiFiClientSsid ) + String( F("'...") ) );
+  WiFi.hostname( ( String( getWiFiHostName() ) + "-" + String( ESP.getChipId() ) ).c_str() );
+  WiFi.begin( wiFiClientSsid, wiFiClientPassword );
+
+  if( WiFi.isConnected() ) {
+    Serial.println( F(" done") );
+    shutdownAccessPoint();
+    forceRefreshData();
+    return;
+  }
+
+  uint8_t previousInternalLedStatus = getInternalLedStatus();
+  renderStripStatus( STRIP_STATUS_WIFI_CONNECTING );
+  setInternalLedStatus( HIGH );
+  unsigned long wiFiConnectStartedMillis = millis();
+  unsigned long wiFiConnectDotDelayStartedMillis = millis();
+  while( true ) {
+    if( calculateDiffMillis( wiFiConnectDotDelayStartedMillis, millis() ) >= 1000 ) {
       Serial.print( "." );
-      wl_status_t wifiStatus = WiFi.status();
-      if( WiFi.isConnected() ) {
-        Serial.println( F(" done") );
-        renderStripStatus( STRIP_STATUS_OK );
-        setInternalLedStatus( previousInternalLedStatus );
-        shutdownAccessPoint();
-        forceRefreshData();
-        break;
-      } else if( ( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS ) && ( calculateDiffMillis( wiFiConnectStartedMillis, millis() ) >= TIMEOUT_CONNECT_WIFI ) ) {
-        Serial.println( String( F(" ERROR: ") ) + getWiFiStatusText( wifiStatus ) );
-        renderStripStatus( STRIP_STATUS_WIFI_ERROR );
-        setInternalLedStatus( previousInternalLedStatus );
-        disconnectFromWiFi( false );
-        createAccessPoint();
-        break;
-      }
+      wiFiConnectDotDelayStartedMillis = millis();
     }
-  } else { //no wait
     wl_status_t wifiStatus = WiFi.status();
     if( WiFi.isConnected() ) {
-      Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
-      setStripStatus( STRIP_STATUS_OK );
+      Serial.println( F(" done") );
+      renderStripStatus( STRIP_STATUS_OK );
+      setInternalLedStatus( previousInternalLedStatus );
       shutdownAccessPoint();
       forceRefreshData();
-    } else if( wifiStatus == WL_NO_SSID_AVAIL || wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_CONNECTION_LOST || wifiStatus == WL_IDLE_STATUS || wifiStatus == WL_DISCONNECTED ) {
-      Serial.println( String( F(" WiFi status: ") ) + getWiFiStatusText( wifiStatus ) );
-      setStripStatus( STRIP_STATUS_WIFI_ERROR );
+      break;
+    } else if( calculateDiffMillis( wiFiConnectStartedMillis, millis() ) >= TIMEOUT_CONNECT_WIFI ) {
+      Serial.println( String( F(" ERROR: ") ) + getWiFiStatusText( wifiStatus ) );
+      renderStripStatus( STRIP_STATUS_WIFI_ERROR );
+      setInternalLedStatus( previousInternalLedStatus );
       disconnectFromWiFi( false );
       createAccessPoint();
+      break;
     }
+    yield();
   }
 }
-
-void resetAlarmStatusAndConnectToWiFi() {
-  initAlarmStatus();
-  if( !isApInitialized ) {
-    connectToWiFi( true, false );
-  }
-}
-
 
 
 //functions for processing raid alarm status
@@ -1423,34 +1434,36 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
   bool isStatusChanged = newAlarmStatusForRegionGroup != oldAlarmStatusForRegionGroup;
   if( oldAlarmStatusForRegionGroup != RAID_ALARM_STATUS_UNINITIALIZED && isStatusChanged ) {
     std::vector<std::vector<uint8_t>>& transitionAnimation = transitionAnimations[ledIndex];
+    
+    //when changing the number of items inserted, please reserve the correct amount of memory for these items in initMaps() method and ensure the longest sequance fits to the memory reserved
     if( isAlarmEnabled ) {
       transitionAnimation.insert(
         transitionAnimation.end(),
         {
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive, raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink
         }
       );
     } else {
       transitionAnimation.insert(
         transitionAnimation.end(),
         {
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
         }
       );
     }
@@ -1681,8 +1694,6 @@ void vkRetrieveAndProcessServerData() {
 
 //functions for UA server
 bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
-  bool isDataChanged = false;
-
   wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
   wiFiClient.setInsecure();
 
@@ -1699,17 +1710,18 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
   httpClient.addHeader( F("Authorization"), String( raidAlarmServerApiKey ) );
   httpClient.addHeader( F("Cache-Control"), F("no-cache") );
   httpClient.addHeader( F("Connection"), F("close") );
+  const char* responseHeadersToCollect[] = { String( F("Content-Length") ).c_str() };
+  httpClient.collectHeaders( responseHeadersToCollect, 1 );
 
   renderStripStatus( STRIP_STATUS_PROCESSING );
   uint8_t previousInternalLedStatus = getInternalLedStatus();
   setInternalLedStatus( HIGH );
 
-  const char* headerKeys[] = { String( F("Content-Length") ).c_str() };
-  httpClient.collectHeaders( headerKeys, 1 );
-
   Serial.print( String( F("Retrieving status... heap: ") ) + String( ESP.getFreeHeap() ) );
   unsigned long processingTimeStartMillis = millis();
   int16_t httpCode = httpClient.GET();
+
+  uint64_t uaLastActionHashRetrieved = 0;
 
   if( httpCode > 0 ) {
     if( httpCode == 200 ) {
@@ -1775,14 +1787,9 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
           if( responseCurrChar == '}' ) {
             if( currObjectLevel == 1 ) {
               if( lastActionIndexValue != "" ) {
-                uint64_t newLastActionHash = strtoull( lastActionIndexValue.c_str(), NULL, 10 );
-                if( newLastActionHash == 0 || uaLastActionHash != newLastActionHash ) {
-                  isDataChanged = true;
-                  uaLastActionHash = newLastActionHash;
-                }
-              } else {
-                isDataChanged = true;
+                uaLastActionHashRetrieved = strtoull( lastActionIndexValue.c_str(), NULL, 10 );
               }
+
               lastActionIndexValue = "";
               isLastActionIndexKeyFound = false;
             }
@@ -1850,10 +1857,12 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
   wiFiClient.stop();
   setInternalLedStatus( previousInternalLedStatus );
 
-  return isDataChanged;
+  bool isAlarmDataUpdatedOnServer = uaLastActionHashRetrieved == 0 || uaLastActionHash != uaLastActionHashRetrieved;
+  uaLastActionHash = uaLastActionHashRetrieved;
+  return isAlarmDataUpdatedOnServer;
 }
 
-void uaProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
+void uaProcessServerData( std::map<String, bool>& regionToAlarmStatus ) { //processes all regions when full JSON is parsed
   bool isParseError = false;
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
@@ -1905,18 +1914,20 @@ void uaRetrieveAndProcessServerData() {
   httpClient.addHeader( F("Authorization"), String( raidAlarmServerApiKey ) );
   httpClient.addHeader( F("Cache-Control"), F("no-cache") );
   httpClient.addHeader( F("Connection"), F("close") );
+  const char* responseHeadersToCollect[] = { String( F("Content-Length") ).c_str() };
+  httpClient.collectHeaders( responseHeadersToCollect, 1 );
 
   renderStripStatus( STRIP_STATUS_PROCESSING );
   uint8_t previousInternalLedStatus = getInternalLedStatus();
   setInternalLedStatus( HIGH );
 
-  const char* headerKeys[] = { String( F("Content-Length") ).c_str() };
-  httpClient.collectHeaders( headerKeys, 1 );
-
-  std::map<String, bool> regionToAlarmStatus; //map to hold full region data, is not needed when single region at a time is processed
   unsigned long processingTimeStartMillis = millis();
   Serial.print( String( F("Retrieving data..... heap: ") ) + String( ESP.getFreeHeap() ) );
+
+  processingTimeStartMillis = millis();
   int16_t httpCode = httpClient.GET();
+
+  std::map<String, bool> regionToAlarmStatus;
   bool isSuccess = false;
 
   if( httpCode > 0 ) {
@@ -2188,7 +2199,6 @@ void uaRetrieveAndProcessServerData() {
 
   httpClient.end();
   wiFiClient.stop();
-
   setInternalLedStatus( previousInternalLedStatus );
 
   if( regionToAlarmStatus.size() != 0 ) {
@@ -2199,6 +2209,7 @@ void uaRetrieveAndProcessServerData() {
     uaRetrieveAndProcessStatusChangedData( wiFiClient );
   }
 }
+
 
 //functions for AC server
 unsigned long acWifiRaidAlarmDataLastProcessedMillis = millis();
@@ -3033,9 +3044,8 @@ void handleWebServerPost() {
     writeEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH );
     writeEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH );
     shutdownAccessPoint();
-    connectToWiFi( true, true );
+    connectToWiFi( true );
   }
-
 }
 
 void handleWebServerGetTestNight() {
@@ -3315,6 +3325,7 @@ void setup() {
   Serial.println();
   Serial.println( String( F("Air Raid Alarm Monitor by Dmytro Kurylo. V@") ) + getFirmwareVersion() + String( F(" CPU@") ) + String( ESP.getCpuFreqMHz() ) );
 
+  initMaps();
   initBeeper();
   initInternalLed();
   initEeprom();
@@ -3325,7 +3336,7 @@ void setup() {
   LittleFS.begin();
   configureWebServer();
   //wiFiEventHandler = WiFi.onStationModeConnected( &onWiFiConnected );
-  connectToWiFi( true, true );
+  connectToWiFi( false );
   startWebServer();
 }
 
@@ -3340,69 +3351,76 @@ void loop() {
   }
   wifiWebServer.handleClient();
 
+  if( isApInitialized && ( calculateDiffMillis( apStartedMillis, millis() ) >= TIMEOUT_AP ) ) {
+    shutdownAccessPoint();
+    connectToWiFi( false );
+  }
+
+  if( !isApInitialized ) {
+    switch( currentRaidAlarmServer ) {
+      case VK_RAID_ALARM_SERVER:
+        if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+          forceRaidAlarmUpdate = false;
+          if( WiFi.isConnected() ) {
+            vkRetrieveAndProcessServerData();
+            processAlertnessLevel();
+          } else {
+            initAlarmStatus();
+            resetAlertnessLevel();
+            connectToWiFi( false );
+          }
+          previousMillisRaidAlarmCheck = millis();
+        }
+        break;
+      case UA_RAID_ALARM_SERVER:
+        if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+          forceRaidAlarmUpdate = false;
+          if( WiFi.isConnected() ) {
+            uaRetrieveAndProcessServerData();
+            processAlertnessLevel();
+          } else {
+            initAlarmStatus();
+            resetAlertnessLevel();
+            connectToWiFi( false );
+          }
+          previousMillisRaidAlarmCheck = millis();
+        }
+        break;
+      case AC_RAID_ALARM_SERVER:
+        acRetrieveAndProcessServerData();
+        processAlertnessLevel();
+        if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
+          forceRaidAlarmUpdate = false;
+          if( !WiFi.isConnected() ) {
+            initAlarmStatus();
+            resetAlertnessLevel();
+            connectToWiFi( false );
+          }
+          previousMillisRaidAlarmCheck = millis();
+        }
+        break;
+      case AI_RAID_ALARM_SERVER:
+        if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
+          forceRaidAlarmUpdate = false;
+          if( WiFi.isConnected() ) {
+            aiRetrieveAndProcessServerData();
+            processAlertnessLevel();
+          } else {
+            initAlarmStatus();
+            resetAlertnessLevel();
+            connectToWiFi( false );
+          }
+          previousMillisRaidAlarmCheck = millis();
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
   if( isFirstLoopRun || ( calculateDiffMillis( previousMillisSensorBrightnessCheck, millis() ) >= DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK ) ) {
     calculateLedStripBrightness();
     previousMillisSensorBrightnessCheck = millis();
-  }
-
-  if( isApInitialized && ( calculateDiffMillis( apStartedMillis, millis() ) >= TIMEOUT_AP ) ) {
-    shutdownAccessPoint();
-    connectToWiFi( true, false );
-  }
-
-  switch( currentRaidAlarmServer ) {
-    case VK_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-        forceRaidAlarmUpdate = false;
-        if( WiFi.isConnected() ) {
-          vkRetrieveAndProcessServerData();
-          processAlertnessLevel();
-        } else {
-          resetAlarmStatusAndConnectToWiFi();
-          resetAlertnessLevel();
-        }
-        previousMillisRaidAlarmCheck = millis();
-      }
-      break;
-    case UA_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-        forceRaidAlarmUpdate = false;
-        if( WiFi.isConnected() ) {
-          uaRetrieveAndProcessServerData();
-          processAlertnessLevel();
-        } else {
-          resetAlarmStatusAndConnectToWiFi();
-          resetAlertnessLevel();
-        }
-        previousMillisRaidAlarmCheck = millis();
-      }
-      break;
-    case AC_RAID_ALARM_SERVER:
-      acRetrieveAndProcessServerData();
-      processAlertnessLevel();
-      if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
-        if( !WiFi.isConnected() ) {
-          resetAlarmStatusAndConnectToWiFi();
-          resetAlertnessLevel();
-        }
-        previousMillisRaidAlarmCheck = millis();
-      }
-      break;
-    case AI_RAID_ALARM_SERVER:
-      if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-        forceRaidAlarmUpdate = false;
-        if( WiFi.isConnected() ) {
-          aiRetrieveAndProcessServerData();
-          processAlertnessLevel();
-        } else {
-          resetAlarmStatusAndConnectToWiFi();
-          resetAlertnessLevel();
-        }
-        previousMillisRaidAlarmCheck = millis();
-      }
-      break;
-    default:
-      break;
   }
 
   if( isFirstLoopRun || ( calculateDiffMillis( previousMillisLedAnimation, millis() ) >= DELAY_DISPLAY_ANIMATION ) ) {
