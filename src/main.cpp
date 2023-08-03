@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 #include <vector>
+#include <list>
 #include <map>
 
 #ifdef ESP8266
@@ -48,7 +49,7 @@ const uint8_t STRIP_PIN = 0;
 #else //ESP32 or ESP32S2
 const uint8_t STRIP_PIN = 18;
 #endif
-const uint16_t DELAY_DISPLAY_ANIMATION = 250; //led animation speed, in ms
+const uint16_t DELAY_DISPLAY_ANIMATION = 500; //led animation speed, in ms
 
 //addressable led strip status led colors confg
 const uint8_t STRIP_STATUS_BLACK = 0;
@@ -312,12 +313,12 @@ std::vector<uint8_t> raidAlarmStatusColorInactiveBlink = { 191, 191, 0 };
 std::vector<uint8_t> raidAlarmStatusColorActiveBlink = { 255, 255, 0 };
 
 std::map<const char*, int8_t> regionNameToRaidAlarmStatus; //populated automatically; RAID_ALARM_STATUS_UNINITIALIZED => uninititialized, RAID_ALARM_STATUS_INACTIVE => no alarm, RAID_ALARM_STATUS_ACTIVE => alarm
-std::vector<std::vector<std::vector<uint8_t>>> transitionAnimations; //populated automatically
+std::vector<std::list<uint32_t>> transitionAnimations; //1 byte - unused, 2 byte - r, 3 byte - g, 4 byte - b
 uint8_t currentRaidAlarmServer = VK_RAID_ALARM_SERVER;
 
 int8_t alertnessHomeRegionIndex = -1;
 
-std::vector<std::vector<uint16_t>> beeperBeeps; //0 - time, 1 - status
+std::list<uint32_t> beeperBeeps; //1 byte - unused, 2+3 byte - time, 4 byte - isBeeping
 unsigned long beepingTimeMillis = 0; //indicates when last beeper action started
 bool isBeeping = false; //indicates beeper action is running
 
@@ -372,14 +373,22 @@ int8_t getRegionStatusByLedIndex( const int8_t& ledIndex, const std::vector<std:
 }
 
 void initAlarmStatus() {
-  regionNameToRaidAlarmStatus.clear();
-  transitionAnimations.clear();
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
-  for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
+  uint8_t allRegionsSize = allRegions.size();
+
+  regionNameToRaidAlarmStatus.clear();
+  transitionAnimations.reserve( allRegionsSize );
+
+  for( uint8_t ledIndex = 0; ledIndex < allRegionsSize; ++ledIndex ) {
     for( const auto& regionName : allRegions[ledIndex] ) {
       regionNameToRaidAlarmStatus[regionName] = RAID_ALARM_STATUS_UNINITIALIZED;
     }
-    transitionAnimations.push_back( std::vector<std::vector<uint8_t>>() );
+    if( transitionAnimations.size() > ledIndex ) {
+      transitionAnimations[ledIndex].clear();
+    } else {
+      transitionAnimations.push_back( std::list<uint32_t>() );
+    }
+    
   }
   uaResetLastActionHash();
 }
@@ -816,9 +825,20 @@ void initBeeper() {
 
 void beeperProcessLoopTick() {
   unsigned long currentMillis = millis();
-  if( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beeperBeeps[0][0] ) < beeperBeeps[0][0] ) return;
 
-  if( beeperBeeps.empty() || ( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beeperBeeps[0][0] ) >= beeperBeeps[0][0] ) ) {
+  //uint8_t unused = 0;
+  uint16_t beepTime = 0;
+  uint8_t beepIsBeeping = 0;
+  if( !beeperBeeps.empty() ) {
+    uint32_t& beeperBeep = beeperBeeps.front();
+    //unused = static_cast<uint8_t>(beeperBeep & 0xFF);
+    beepTime = static_cast<uint16_t>((beeperBeep >> 8) & 0xFFFF);
+    beepIsBeeping = static_cast<uint8_t>((beeperBeep >> 24) & 0xFF);
+  }
+
+  if( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beepTime ) < beepTime ) return;
+
+  if( beeperBeeps.empty() || ( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beepTime ) >= beepTime ) ) {
     beepingTimeMillis = millis();
     isBeeping = false;
     stopBeeping();
@@ -826,14 +846,14 @@ void beeperProcessLoopTick() {
     if( beeperBeeps.empty() ) {
       return;
     } else {
-      beeperBeeps.erase( beeperBeeps.begin() );
+      beeperBeeps.pop_front();
     }
   }
 
   if( !beeperBeeps.empty() && !isBeeping ) {
     beepingTimeMillis = currentMillis;
     isBeeping = true;
-    if( beeperBeeps[0][1] != 0 ) {
+    if( beepIsBeeping != 0 ) {
       startBeeping();
     }
   }
@@ -842,33 +862,48 @@ void beeperProcessLoopTick() {
 
 //alertness functionality
 int8_t alertLevel = -1;
+
+void addBeeps( std::vector<std::vector<uint16_t>> data ) {
+  if( !beeperBeeps.empty() ) {
+    uint32_t& beeperBeep = beeperBeeps.front();
+    uint8_t beepIsBeeping = static_cast<uint8_t>((beeperBeep >> 24) & 0xFF);
+    if( beepIsBeeping ) {
+      uint32_t pauseBeepToInsert = static_cast<uint32_t>(1) |
+                                  (static_cast<uint32_t>(250) << 8) |
+                                  (static_cast<uint32_t>(0) << 24);
+      beeperBeeps.push_front( pauseBeepToInsert );
+    }
+  }
+
+  size_t dataSize = data.size();
+  for( size_t i = 0; i < dataSize; ++i ) {
+    std::vector<uint16_t> dataBeep = data[i];
+    uint32_t dataBeepToInsert = static_cast<uint32_t>(1) |
+                               (static_cast<uint32_t>(dataBeep[0]) << 8) |
+                               (static_cast<uint32_t>(dataBeep[1]) << 24);
+    beeperBeeps.push_front( dataBeepToInsert );
+  }
+}
+
 void signalAlertnessLevelIncrease() {
   if( alertLevel == -1 ) return;
   Serial.println( String( F("Alertness level up to ") ) + String( alertLevel ) + ( alertLevel == 0 ? String( F(" (alarm in home region)") ) : F(" (alarm in neighboring regions)") ) );
 
+  //when changing the number of items inserted, please reserve the correct amount of memory for these items during vector declaration
   if( alertLevel == 0 ) {
-    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
-    beeperBeeps.insert( beeperBeeps.end(), {
+    addBeeps( {
       { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 },
       { 300, 0 },
       { 400, 1 }, { 100, 0 }, { 400, 1 }, { 100, 0 }, { 400, 1 },
       { 300, 0 },
-      { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 } } );
-  } else if( alertLevel == 1 ) {
-    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
-    beeperBeeps.insert( beeperBeeps.end(), {
       { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 }
     } );
+  } else if( alertLevel == 1 ) {
+    addBeeps( { { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 } } );
   } else if( alertLevel == 2 ) {
-    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
-    beeperBeeps.insert( beeperBeeps.end(), {
-      { 200, 1 }, { 100, 0 }, { 200, 1 }
-    } );
+    addBeeps( { { 200, 1 }, { 100, 0 }, { 200, 1 } } );
   } else if( alertLevel == 3 ) {
-    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
-    beeperBeeps.insert( beeperBeeps.end(), {
-      { 200, 1 }
-    } );
+    addBeeps( { { 200, 1 } } );
   }
 }
 
@@ -876,25 +911,13 @@ void signalAlertnessLevelDecrease() {
   Serial.println( String( F("Alertness level down to ") ) + String( alertLevel ) + ( alertLevel == -1 ? String( F(" (not dangerous)") ) : F(" (alarm in neighboring regions)") ) );
 
   if( alertLevel == 1 ) {
-    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
-    beeperBeeps.insert( beeperBeeps.end(), {
-      { 100, 1 }, { 50, 0 }, { 100, 1 }, { 50, 0 }, { 100, 1 }
-    } );
+    addBeeps( { { 100, 1 }, { 50, 0 }, { 100, 1 }, { 50, 0 }, { 100, 1 } } );
   } else if( alertLevel == 2 ) {
-    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
-    beeperBeeps.insert( beeperBeeps.end(), {
-      { 100, 1 }, { 50, 0 }, { 100, 1 }
-    } );
+    addBeeps( { { 100, 1 }, { 50, 0 }, { 100, 1 } } );
   } else if( alertLevel == 3 ) {
-    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
-    beeperBeeps.insert( beeperBeeps.end(), {
-      { 100, 1 }
-    } );
+    addBeeps( { { 100, 1 } } );
   } else if( alertLevel == -1 ) {
-    if( !beeperBeeps.empty() ) beeperBeeps.push_back( { 250, 0 } );
-    beeperBeeps.insert( beeperBeeps.end(), {
-      { 25, 1 }
-    } );
+    addBeeps( { { 25, 1 } } );
   }
 }
 
@@ -1119,14 +1142,20 @@ void renderStrip() {
 
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
   for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
-    std::vector<std::vector<uint8_t>>& transitionAnimation = transitionAnimations[ledIndex];
+    std::list<uint32_t>& transitionAnimation = transitionAnimations[ledIndex];
     uint8_t alarmStatusLedIndex = ( ledIndex < STRIP_STATUS_LED_INDEX || STRIP_STATUS_LED_INDEX < 0 ) ? ledIndex : ledIndex + 1;
     std::vector<uint8_t> alarmStatusColorToDisplay = RAID_ALARM_STATUS_COLOR_UNKNOWN;
     int8_t alarmStatus = getRegionStatusByLedIndex( ledIndex, allRegions );
-    if( transitionAnimation.size() > 0 ) {
-      std::vector<uint8_t> nextAnimationColor = transitionAnimation.front();
-      transitionAnimation.erase( transitionAnimation.begin() );
-      alarmStatusColorToDisplay = nextAnimationColor;
+
+    if( !transitionAnimation.empty() ) {
+      uint32_t transitionAnimationColor = transitionAnimation.front();
+      transitionAnimation.pop_front();
+
+      //uint8_t unused = static_cast<uint8_t>(transitionAnimationColor & 0xFF);
+      uint8_t r = static_cast<uint8_t>((transitionAnimationColor >> 8) & 0xFF);
+      uint8_t g = static_cast<uint8_t>((transitionAnimationColor >> 16) & 0xFF);
+      uint8_t b = static_cast<uint8_t>((transitionAnimationColor >> 24) & 0xFF);
+      alarmStatusColorToDisplay = { r, g, b };
     } else {
       if( alarmStatus == RAID_ALARM_STATUS_INACTIVE ) {
         alarmStatusColorToDisplay = showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive;
@@ -1396,6 +1425,21 @@ void connectToWiFi( bool forceReconnect ) {
 
 
 //functions for processing raid alarm status
+void addTransitionAnimation( uint8_t ledIndex, std::vector<std::vector<uint8_t>> data ) {
+  std::list<uint32_t>& transitionAnimation = transitionAnimations[ledIndex];
+
+  uint8_t dataSize = data.size();
+  for( uint8_t i = 0; i < dataSize; ++i ) {
+    std::vector<uint8_t> dataColor = data[i];
+    uint32_t dataColorToInsert = static_cast<uint32_t>(1) |
+                                (static_cast<uint32_t>(dataColor[0]) << 8) |
+                                (static_cast<uint32_t>(dataColor[1]) << 16) |
+                                (static_cast<uint32_t>(dataColor[2]) << 24);
+    transitionAnimation.push_back( dataColorToInsert );
+  }
+}
+
+
 bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAlarmEnabled ) {
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
 
@@ -1408,36 +1452,35 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
 
   bool isStatusChanged = newAlarmStatusForRegionGroup != oldAlarmStatusForRegionGroup;
   if( oldAlarmStatusForRegionGroup != RAID_ALARM_STATUS_UNINITIALIZED && isStatusChanged ) {
-    std::vector<std::vector<uint8_t>>& transitionAnimation = transitionAnimations[ledIndex];
-    
+    //when changing the number of items inserted, please reserve the correct amount of memory for these items during vector declaration
     if( isAlarmEnabled ) {
-      transitionAnimation.insert(
-        transitionAnimation.end(),
+      addTransitionAnimation(
+        ledIndex,
         {
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink
+          raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink,
         }
       );
     } else {
-      transitionAnimation.insert(
-        transitionAnimation.end(),
+      addTransitionAnimation(
+        ledIndex,
         {
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink,
         }
       );
     }
