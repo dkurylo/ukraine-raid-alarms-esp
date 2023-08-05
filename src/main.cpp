@@ -49,7 +49,7 @@ const uint8_t STRIP_PIN = 0;
 #else //ESP32 or ESP32S2
 const uint8_t STRIP_PIN = 18;
 #endif
-const uint16_t DELAY_DISPLAY_ANIMATION = 500; //led animation speed, in ms
+const uint16_t DELAY_DISPLAY_ANIMATION = 250; //led animation speed, in ms
 
 //addressable led strip status led colors confg
 const uint8_t STRIP_STATUS_BLACK = 0;
@@ -850,6 +850,11 @@ void beeperProcessLoopTick() {
     }
   }
 
+  uint32_t& beeperBeep = beeperBeeps.front();
+  //unused = static_cast<uint8_t>(beeperBeep & 0xFF);
+  beepTime = static_cast<uint16_t>((beeperBeep >> 8) & 0xFFFF);
+  beepIsBeeping = static_cast<uint8_t>((beeperBeep >> 24) & 0xFF);
+
   if( !beeperBeeps.empty() && !isBeeping ) {
     beepingTimeMillis = currentMillis;
     isBeeping = true;
@@ -865,13 +870,13 @@ int8_t alertLevel = -1;
 
 void addBeeps( std::vector<std::vector<uint16_t>> data ) {
   if( !beeperBeeps.empty() ) {
-    uint32_t& beeperBeep = beeperBeeps.front();
+    uint32_t& beeperBeep = beeperBeeps.back();
     uint8_t beepIsBeeping = static_cast<uint8_t>((beeperBeep >> 24) & 0xFF);
     if( beepIsBeeping ) {
       uint32_t pauseBeepToInsert = static_cast<uint32_t>(1) |
                                   (static_cast<uint32_t>(250) << 8) |
                                   (static_cast<uint32_t>(0) << 24);
-      beeperBeeps.push_front( pauseBeepToInsert );
+      beeperBeeps.push_back( pauseBeepToInsert );
     }
   }
 
@@ -881,7 +886,7 @@ void addBeeps( std::vector<std::vector<uint16_t>> data ) {
     uint32_t dataBeepToInsert = static_cast<uint32_t>(1) |
                                (static_cast<uint32_t>(dataBeep[0]) << 8) |
                                (static_cast<uint32_t>(dataBeep[1]) << 24);
-    beeperBeeps.push_front( dataBeepToInsert );
+    beeperBeeps.push_back( dataBeepToInsert );
   }
 }
 
@@ -917,7 +922,7 @@ void signalAlertnessLevelDecrease() {
   } else if( alertLevel == 3 ) {
     addBeeps( { { 100, 1 } } );
   } else if( alertLevel == -1 ) {
-    addBeeps( { { 25, 1 } } );
+    addBeeps( { { 50, 1 } } );
   }
 }
 
@@ -1457,30 +1462,30 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
       addTransitionAnimation(
         ledIndex,
         {
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink,
-          raidAlarmStatusColorActive,
-          raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
+          raidAlarmStatusColorActive, raidAlarmStatusColorActive,
+          raidAlarmStatusColorActiveBlink, raidAlarmStatusColorActiveBlink,
         }
       );
     } else {
       addTransitionAnimation(
         ledIndex,
         {
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink,
-          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
-          raidAlarmStatusColorInactiveBlink,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
+          showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive, showOnlyActiveAlarms ? RAID_ALARM_STATUS_COLOR_BLACK : raidAlarmStatusColorInactive,
+          raidAlarmStatusColorInactiveBlink, raidAlarmStatusColorInactiveBlink,
         }
       );
     }
