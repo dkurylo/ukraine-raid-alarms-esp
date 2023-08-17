@@ -318,6 +318,7 @@ uint8_t currentRaidAlarmServer = VK_RAID_ALARM_SERVER;
 
 int8_t alertnessHomeRegionIndex = -1;
 
+bool isBeepingEnabled = false;
 std::list<uint32_t> beeperBeeps; //1 byte - unused, 2+3 byte - time, 4 byte - isBeeping
 unsigned long beepingTimeMillis = 0; //indicates when last beeper action started
 bool isBeeping = false; //indicates beeper action is running
@@ -581,7 +582,8 @@ const uint16_t eepromAlarmOnOffIndex = eepromAlarmOffColorIndex + 3;
 const uint16_t eepromAlarmOffOnIndex = eepromAlarmOnOffIndex + 3;
 const uint16_t eepromStripLedBrightnessDimmingNightIndex = eepromAlarmOffOnIndex + 3;
 const uint16_t eepromStripPartyModeIndex = eepromStripLedBrightnessDimmingNightIndex + 1;
-const uint16_t eepromUaRaidAlarmApiKeyIndex = eepromStripPartyModeIndex + 1;
+const uint16_t eepromIsBeepingEnabledIndex = eepromStripPartyModeIndex + 1;
+const uint16_t eepromUaRaidAlarmApiKeyIndex = eepromIsBeepingEnabledIndex + 1;
 const uint16_t eepromAcRaidAlarmApiKeyIndex = eepromUaRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
 const uint16_t eepromAiRaidAlarmApiKeyIndex = eepromAcRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
 const uint16_t eepromAlertnessHomeRegionIndex = eepromAiRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
@@ -745,6 +747,7 @@ void loadEepromData() {
     readEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink, true );
     readEepromUintValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight, true );
     readEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode, true );
+    readEepromBoolValue( eepromIsBeepingEnabledIndex, isBeepingEnabled, true );
     readRaidAlarmServerApiKey( -1 );
     readEepromIntValue( eepromAlertnessHomeRegionIndex, alertnessHomeRegionIndex, true );
 
@@ -763,6 +766,7 @@ void loadEepromData() {
     writeEepromColor( eepromAlarmOffOnIndex, raidAlarmStatusColorActiveBlink );
     writeEepromUintValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight );
     writeEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode );
+    writeEepromBoolValue( eepromIsBeepingEnabledIndex, isBeepingEnabled );
     char raidAlarmServerApiKeyEmpty[RAID_ALARM_SERVER_API_KEY_LENGTH] = "";
     writeEepromCharArray( eepromUaRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
     writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
@@ -836,9 +840,9 @@ void beeperProcessLoopTick() {
     beepIsBeeping = static_cast<uint8_t>((beeperBeep >> 24) & 0xFF);
   }
 
-  if( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beepTime ) < beepTime ) return;
+  if( isBeepingEnabled && isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beepTime ) < beepTime ) return;
 
-  if( beeperBeeps.empty() || ( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beepTime ) >= beepTime ) ) {
+  if( !isBeepingEnabled || beeperBeeps.empty() || ( isBeeping && calculateDiffMillis( currentMillis, beepingTimeMillis + beepTime ) >= beepTime ) ) {
     beepingTimeMillis = millis();
     isBeeping = false;
     stopBeeping();
@@ -867,6 +871,7 @@ void beeperProcessLoopTick() {
 
 //alertness functionality
 int8_t alertLevel = -1;
+unsigned long alertLevelInHomeRegionStartTimeMillis = 0;
 
 void addBeeps( std::vector<std::vector<uint16_t>> data ) {
   if( !beeperBeeps.empty() ) {
@@ -895,34 +900,38 @@ void signalAlertnessLevelIncrease() {
   Serial.println( String( F("Alertness level up to ") ) + String( alertLevel ) + ( alertLevel == 0 ? String( F(" (alarm in home region)") ) : F(" (alarm in neighboring regions)") ) );
 
   //when changing the number of items inserted, please reserve the correct amount of memory for these items during vector declaration
-  if( alertLevel == 0 ) {
-    addBeeps( {
-      { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 },
-      { 300, 0 },
-      { 400, 1 }, { 100, 0 }, { 400, 1 }, { 100, 0 }, { 400, 1 },
-      { 300, 0 },
-      { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 }
-    } );
-  } else if( alertLevel == 1 ) {
-    addBeeps( { { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 } } );
-  } else if( alertLevel == 2 ) {
-    addBeeps( { { 200, 1 }, { 100, 0 }, { 200, 1 } } );
-  } else if( alertLevel == 3 ) {
-    addBeeps( { { 200, 1 } } );
+  if( isBeepingEnabled ) {
+    if( alertLevel == 0 ) {
+      addBeeps( {
+        { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 },
+        { 300, 0 },
+        { 400, 1 }, { 100, 0 }, { 400, 1 }, { 100, 0 }, { 400, 1 },
+        { 300, 0 },
+        { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 }
+      } );
+    } else if( alertLevel == 1 ) {
+      addBeeps( { { 200, 1 }, { 100, 0 }, { 200, 1 }, { 100, 0 }, { 200, 1 } } );
+    } else if( alertLevel == 2 ) {
+      addBeeps( { { 200, 1 }, { 100, 0 }, { 200, 1 } } );
+    } else if( alertLevel == 3 ) {
+      addBeeps( { { 200, 1 } } );
+    }
   }
 }
 
 void signalAlertnessLevelDecrease() {
   Serial.println( String( F("Alertness level down to ") ) + String( alertLevel ) + ( alertLevel == -1 ? String( F(" (not dangerous)") ) : F(" (alarm in neighboring regions)") ) );
 
-  if( alertLevel == 1 ) {
-    addBeeps( { { 100, 1 }, { 50, 0 }, { 100, 1 }, { 50, 0 }, { 100, 1 } } );
-  } else if( alertLevel == 2 ) {
-    addBeeps( { { 100, 1 }, { 50, 0 }, { 100, 1 } } );
-  } else if( alertLevel == 3 ) {
-    addBeeps( { { 100, 1 } } );
-  } else if( alertLevel == -1 ) {
-    addBeeps( { { 50, 1 } } );
+  if( isBeepingEnabled ) {
+    if( alertLevel == 1 ) {
+      addBeeps( { { 100, 1 }, { 50, 0 }, { 100, 1 }, { 50, 0 }, { 100, 1 } } );
+    } else if( alertLevel == 2 ) {
+      addBeeps( { { 100, 1 }, { 50, 0 }, { 100, 1 } } );
+    } else if( alertLevel == 3 ) {
+      addBeeps( { { 100, 1 } } );
+    } else if( alertLevel == -1 ) {
+      addBeeps( { { 50, 1 } } );
+    }
   }
 }
 
@@ -989,6 +998,7 @@ void setAdjacentRegions() {
 
 void resetAlertnessLevel() {
   alertLevel = -1;
+  alertLevelInHomeRegionStartTimeMillis = 0;
   Serial.println( String( F("Alertness level reset") ) );
 }
 
@@ -1031,6 +1041,13 @@ void processAlertnessLevel() {
   }
 
   alertLevel = newAlertLevel;
+
+  if( newAlertLevel == 0 && oldAlertLevel != 0 ) {
+    alertLevelInHomeRegionStartTimeMillis = millis();
+  } else if( newAlertLevel != 0 && oldAlertLevel == 0 ) {
+    alertLevelInHomeRegionStartTimeMillis = 0;
+  }
+
   if( newAlertLevel != -1 && ( oldAlertLevel == -1 || newAlertLevel < oldAlertLevel ) ) {
     signalAlertnessLevelIncrease();
   } else if( oldAlertLevel != -1 && ( newAlertLevel == -1 || newAlertLevel > oldAlertLevel ) ) {
@@ -2507,8 +2524,9 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       "body{margin:0;background-color:#444;font-family:sans-serif;color:#FFF;}"
       "body,input,button,select{font-size:var(--f);}"
       ".wrp{width:60%;min-width:460px;max-width:600px;margin:auto;margin-bottom:10px;}"
-      "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.3em;margin-bottom:0.3em;}"
-      ".fx{display:flex;flex-wrap:wrap;margin:auto;margin-top:0.3em;}"
+      "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.3em;margin-bottom:0.2em;}"
+      ".fx{display:flex;flex-wrap:wrap;margin:auto;}"
+      ".fx:not(:first-of-type){margin-top:0.3em;}"
       ".fx .fi{display:flex;align-items:center;margin-top:0.3em;width:100%;}"
       ".fx .fi:first-of-type,.fx.fv .fi{margin-top:0;}"
       ".fv{flex-direction:column;align-items:flex-start;}"
@@ -2600,6 +2618,7 @@ const uint8_t getWiFiClientSsidPasswordMaxLength() { return WIFI_PASSWORD_MAX_LE
 const uint8_t getRaidAlarmServerApiKeyMaxLength() { return RAID_ALARM_SERVER_API_KEY_LENGTH - 1;}
 
 const char* HTML_PAGE_ROOT_ENDPOINT = "/";
+const char* HTML_PAGE_STATUS_ENDPOINT = "/status";
 const char* HTML_PAGE_REBOOT_ENDPOINT = "/reboot";
 const char* HTML_PAGE_TESTLED_ENDPOINT = "/testled";
 const char* HTML_PAGE_TEST_NIGHT_ENDPOINT = "/testdim";
@@ -2627,6 +2646,7 @@ const char* HTML_PAGE_ALARM_OFFON_NAME = "clroffon";
 const char* HTML_PAGE_BRIGHTNESS_NIGHT_NAME = "brtn";
 const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 const char* HTML_PAGE_HOME_REGION_NAME = "hmr";
+const char* HTML_PAGE_IS_BEEPING_ENABLED_NAME = "bpe";
 
 void handleWebServerGet() {
   String content;
@@ -2731,6 +2751,7 @@ void handleWebServerGet() {
       "</select>"
       "<script>op('") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("','") ) + String( alertnessHomeRegionIndex ) + String( F("');</script>"
     "</div>"
+    "<div class=\"fi pl\">") ) + getHtmlInput( F("Озвучувати тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_IS_BEEPING_ENABLED_NAME, HTML_PAGE_IS_BEEPING_ENABLED_NAME, 0, 0, false, isBeepingEnabled ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Показувати лише тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Підсвічувати статусний діод"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Режим вечірки (зміна кольору)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + String( F("</div>"
@@ -2867,6 +2888,17 @@ void handleWebServerPost() {
   String htmlPageAlarmOnOffColorReceived = wifiWebServer.arg( HTML_PAGE_ALARM_ONOFF_NAME );
   std::vector<uint8_t> alarmOnOffColorReceived = getVectorColor( htmlPageAlarmOnOffColorReceived );
 
+  String htmlPageIsBeepingEnabledCheckboxReceived = wifiWebServer.arg( HTML_PAGE_IS_BEEPING_ENABLED_NAME );
+  bool isBeepingEnabledReceived = false;
+  bool isBeepingEnabledReceivedPopulated = false;
+  if( htmlPageIsBeepingEnabledCheckboxReceived == "on" ) {
+    isBeepingEnabledReceived = true;
+    isBeepingEnabledReceivedPopulated = true;
+  } else if( htmlPageIsBeepingEnabledCheckboxReceived == "" ) {
+    isBeepingEnabledReceived = false;
+    isBeepingEnabledReceivedPopulated = true;
+  }
+
   String htmlPageShowOnlyActiveAlarmsCheckboxReceived = wifiWebServer.arg( HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME );
   bool showOnlyActiveAlarmsReceived = false;
   bool showOnlyActiveAlarmsReceivedPopulated = false;
@@ -2989,6 +3021,12 @@ void handleWebServerPost() {
     writeEepromColor( eepromAlarmOnOffIndex, alarmOnOffColorReceived );
   }
 
+  if( isBeepingEnabledReceivedPopulated && isBeepingEnabledReceived != isBeepingEnabled ) {
+    isBeepingEnabled = isBeepingEnabledReceived;
+    Serial.println( F("Beeping on alarms updated") );
+    writeEepromBoolValue( eepromIsBeepingEnabledIndex, isBeepingEnabledReceived );
+  }
+
   if( showOnlyActiveAlarmsReceivedPopulated && showOnlyActiveAlarmsReceived != showOnlyActiveAlarms ) {
     showOnlyActiveAlarms = showOnlyActiveAlarmsReceived;
     isStripRerenderRequired = true;
@@ -3068,6 +3106,17 @@ void handleWebServerPost() {
     shutdownAccessPoint();
     connectToWiFi( true );
   }
+}
+
+void handleWebServerGetStatus() {
+  const std::vector<std::vector<const char*>>& allRegions = getRegions();
+  String content = String( F("{"
+    "\"active\": ") ) + ( alertnessHomeRegionIndex == -1 ? String( F("null") ) : ( getRegionStatusByLedIndex( alertnessHomeRegionIndex, allRegions ) == RAID_ALARM_STATUS_ACTIVE ? String( F("true") ) : String( F("false") ) ) ) + String( F(", "
+    "\"level\": ") ) + String( alertLevel ) + String( F(", "
+    "\"time\": ") ) + ( alertLevel != 0 ? String( F("null") ) : String( calculateDiffMillis( alertLevelInHomeRegionStartTimeMillis, millis() ) / 1000 ) ) + String( F(" "
+  "}") );
+  wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
+  wifiWebServer.send( 200, getContentType( F("json") ), content );
 }
 
 void handleWebServerGetTestNight() {
@@ -3324,6 +3373,7 @@ void startWebServer() {
 void configureWebServer() {
   wifiWebServer.on( HTML_PAGE_ROOT_ENDPOINT, HTTP_GET,  handleWebServerGet );
   wifiWebServer.on( HTML_PAGE_ROOT_ENDPOINT, HTTP_POST, handleWebServerPost );
+  wifiWebServer.on( HTML_PAGE_STATUS_ENDPOINT, HTTP_GET,  handleWebServerGetStatus );
   wifiWebServer.on( HTML_PAGE_TEST_NIGHT_ENDPOINT, HTTP_GET, handleWebServerGetTestNight );
   wifiWebServer.on( HTML_PAGE_TESTLED_ENDPOINT, HTTP_GET, handleWebServerGetTestLeds );
   wifiWebServer.on( HTML_PAGE_REBOOT_ENDPOINT, HTTP_GET, handleWebServerGetReboot );
