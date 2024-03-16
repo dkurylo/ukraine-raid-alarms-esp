@@ -30,7 +30,7 @@ const char* getWiFiAccessPointSsid() { const char* result = "Air Raid Monitor"; 
 const char* getWiFiAccessPointPassword() { const char* result = "1029384756"; return result; };
 const IPAddress getWiFiAccessPointIp() { IPAddress result( 192, 168, 1, 1 ); return result; };
 const IPAddress getWiFiAccessPointNetMask() { IPAddress result( 255, 255, 255, 0 ); return result; };
-const uint32_t TIMEOUT_AP = 180000;
+const uint32_t TIMEOUT_AP = 120000;
 
 //wifi client configuration
 const uint8_t WIFI_SSID_MAX_LENGTH = 32;
@@ -72,7 +72,7 @@ const bool INVERT_INTERNAL_LED = true;
 #else //ESP32 or ESP32S2
 const bool INVERT_INTERNAL_LED = false;
 #endif
-const bool INTERNAL_LED_IS_USED = true;
+const bool INTERNAL_LED_IS_USED = false;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_LOW = 59800;
 const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
 
@@ -1071,12 +1071,18 @@ void calculateLedStripBrightness() {
 
   if( sensorBrightnessAverage >= SENSOR_BRIGHTNESS_DAY_LEVEL ) {
     ledStripBrightnessCurrent = static_cast<double>(stripLedBrightness);
-  } else if( sensorBrightnessAverage <= SENSOR_BRIGHTNESS_NIGHT_LEVEL ) {
-    ledStripBrightnessCurrent = static_cast<double>(stripLedBrightness) * stripLedBrightnessDimmingNight / 255;
   } else {
     double nightBrightness = static_cast<double>( stripLedBrightness ) * stripLedBrightnessDimmingNight / 255;
-    ledStripBrightnessCurrent = nightBrightness + static_cast<double>( stripLedBrightness - nightBrightness ) * ( sensorBrightnessAverage - SENSOR_BRIGHTNESS_NIGHT_LEVEL ) / ( SENSOR_BRIGHTNESS_DAY_LEVEL - SENSOR_BRIGHTNESS_NIGHT_LEVEL );
+    if( sensorBrightnessAverage <= SENSOR_BRIGHTNESS_NIGHT_LEVEL ) {
+      ledStripBrightnessCurrent = nightBrightness;
+    } else {
+      ledStripBrightnessCurrent = nightBrightness + static_cast<double>( stripLedBrightness - nightBrightness ) * ( sensorBrightnessAverage - SENSOR_BRIGHTNESS_NIGHT_LEVEL ) / ( SENSOR_BRIGHTNESS_DAY_LEVEL - SENSOR_BRIGHTNESS_NIGHT_LEVEL );
+    }
   }
+}
+
+String serialiseColor( std::vector<uint8_t> color ) {
+  return String( color[0] ) + String( F(", ") ) + String( color[1] ) + String( F(", ") ) + String( color[2] );
 }
 
 std::vector<uint8_t> getRequestedColor( std::vector<uint8_t> color, double brightness ) {
@@ -1091,12 +1097,12 @@ std::vector<uint8_t> getRequestedColor( std::vector<uint8_t> color, double brigh
   uint8_t r = round( brightness * r_req / 255 );
   uint8_t g = round( brightness * g_req / 255 );
   uint8_t b = round( brightness * b_req / 255 );
+  uint8_t maxValue = max( r_req, g_req, b_req );
   if( r >= 1 || g >= 1 || b >= 1 ) {
     r_req = r;
     g_req = g;
     b_req = b;
   } else {
-    uint8_t maxValue = max( r_req, g_req, b_req );
     r_req = r_req == maxValue ? 1 : r;
     g_req = g_req == maxValue ? 1 : g;
     b_req = b_req == maxValue ? 1 : b;
@@ -1391,9 +1397,12 @@ void disconnectFromWiFi( bool erasePreviousCredentials ) {
   }
 }
 
+bool isRouterSsidProvided() {
+  return strlen(wiFiClientSsid) != 0;
+}
 
 void connectToWiFi( bool forceReconnect ) {
-  if( strlen(wiFiClientSsid) == 0 ) {
+  if( !isRouterSsidProvided() ) {
     createAccessPoint();
     return;
   }
@@ -2524,7 +2533,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       "body{margin:0;background-color:#444;font-family:sans-serif;color:#FFF;}"
       "body,input,button,select{font-size:var(--f);}"
       ".wrp{width:60%;min-width:460px;max-width:600px;margin:auto;margin-bottom:10px;}"
-      "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.3em;margin-bottom:0.2em;}"
+      "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.3em;margin-bottom:0.1em;}"
       ".fx{display:flex;flex-wrap:wrap;margin:auto;}"
       ".fx:not(:first-of-type){margin-top:0.3em;}"
       ".fx .fi{display:flex;align-items:center;margin-top:0.3em;width:100%;}"
@@ -2554,6 +2563,10 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".i{color:#CCC;margin-left:0.2em;border:1px solid #777;border-radius:50%;background-color:#666;cursor:default;font-size:65%;vertical-align:top;width:1em;height:1em;display:inline-block;text-align:center;}"
       ".i:before{content:\"i\";position:relative;top:-0.07em;}"
       ".i:hover{background-color:#777;color:#DDD;}"
+      ".stat{opacity:0.3;font-size:65%;border:1px solid #DDD;border-radius:4px;overflow:hidden;}"
+      ".stat>span{padding:1px 4px;display:inline-block;}"
+      ".stat>span:first-of-type{background-color:#666;}"
+      ".stat>span:not(:last-of-type){border-right:1px solid #DDD;}"
       "@media(max-device-width:800px) and (orientation:portrait){"
         ":root{--f:4vw;}"
         ".wrp{width:94%;max-width:100%;}"
@@ -2608,7 +2621,7 @@ String getHtmlInput( String label, const char* type, const char* value, const ch
       ( (strcmp(type, HTML_INPUT_CHECKBOX) != 0) ? String( F(" value=\"") ) + String( value ) + "\"" : "" ) +
       ( isRequired && (strcmp(type, HTML_INPUT_TEXT) == 0 || strcmp(type, HTML_INPUT_PASSWORD) == 0) ? F(" required") : F("") ) +
       ( isChecked && (strcmp(type, HTML_INPUT_RADIO) == 0 || strcmp(type, HTML_INPUT_CHECKBOX) == 0) ? F(" checked") : F("") ) +
-      ( (strcmp(type, HTML_INPUT_RANGE) == 0) ? String( F(" min=\"") ) + String( minLength ) + String( F("\" max=\"") ) + String(maxLength) + String( F("\" oninput=\"this.nextElementSibling.value=this.value;\"><output>") ) + String( value ) + String( F("</output") ) : "" ) +
+      ( (strcmp(type, HTML_INPUT_RANGE) == 0) ? String( F(" min=\"") ) + String( minLength ) + String( F("\" max=\"") ) + String( maxLength ) + String( F("\" oninput=\"this.nextElementSibling.value=this.value;\"><output>") ) + String( value ) + String( F("</output") ) : "" ) +
     ">" +
       ( (strcmp(type, HTML_INPUT_TEXT) != 0 && strcmp(type, HTML_INPUT_PASSWORD) != 0 && strcmp(type, HTML_INPUT_COLOR) != 0 && strcmp(type, HTML_INPUT_RANGE) != 0) ? getHtmlLabel( label, elId, false ) : "" );
 }
@@ -2623,6 +2636,7 @@ const char* HTML_PAGE_REBOOT_ENDPOINT = "/reboot";
 const char* HTML_PAGE_TESTLED_ENDPOINT = "/testled";
 const char* HTML_PAGE_TEST_NIGHT_ENDPOINT = "/testdim";
 const char* HTML_PAGE_UPDATE_ENDPOINT = "/update";
+const char* HTML_PAGE_PING_ENDPOINT = "/ping";
 const char* HTML_PAGE_MAP_ENDPOINT = "/map";
 const char* HTML_PAGE_FAVICON_ENDPOINT = "/favicon.ico";
 
@@ -2663,10 +2677,19 @@ void handleWebServerGet() {
         "}"
       "};"
       "xhr.send(null);"
+      "pg();"
     "});"
   "</script>"
   "<div id=\"map\"></div>") ) ) ) +
   String( F("<script>"
+    "function pg(){"
+      "let ap=") ) + String( isApInitialized ) + String( F(";"
+      "if(!ap)return;"
+      "setInterval(()=>{"
+        "fetch('/ping').catch(e=>{"
+        "});"
+      "},60000);"
+    "}"
     "function ex(el){"
       "Array.from(el.parentElement.parentElement.children).forEach(ch=>{"
         "if(ch.classList.contains(\"ex\"))ch.classList.toggle(\"exon\");"
@@ -2773,11 +2796,20 @@ void handleWebServerGet() {
       "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Перезавантажити") ) + String( F("</span>"
     "</span>"
   "</div>"
+  "<div class=\"fx\" style=\"padding-top:0.3em;\">"
+    "<span>"
+      "<div class=\"stat\"><span>Яскравість</span><span>CUR ") ) + String( analogRead(A0) ) + String( F("</span><span>AVG ") ) + String( sensorBrightnessAverage ) + String( F("</span><span>REQ ") ) + String( ledStripBrightnessCurrent ) + String( F("</span><span>ON ") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent ) ) + String( F("</span><span>OFF ") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent ) ) + String( F("</span></div>"
+    "</span>"
+  "</div>"
 "</div>") );
   addHtmlPageEnd( content );
 
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
+
+  if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
+    apStartedMillis = millis();
+  }
 }
 
 const char HTML_PAGE_FILLUP_START[] PROGMEM = "<style>"
@@ -3110,7 +3142,7 @@ void handleWebServerPost() {
 
 void handleWebServerGetStatus() {
   const std::vector<std::vector<const char*>>& allRegions = getRegions();
-  String content = String( F("{"
+  String content = String( F("{ "
     "\"active\": ") ) + ( alertnessHomeRegionIndex == -1 ? String( F("null") ) : ( getRegionStatusByLedIndex( alertnessHomeRegionIndex, allRegions ) == RAID_ALARM_STATUS_ACTIVE ? String( F("true") ) : String( F("false") ) ) ) + String( F(", "
     "\"level\": ") ) + String( alertLevel ) + String( F(", "
     "\"time\": ") ) + ( alertLevel != 0 ? String( F("null") ) : String( calculateDiffMillis( alertLevelInHomeRegionStartTimeMillis, millis() ) / 1000 ) ) + String( F(" "
@@ -3126,13 +3158,17 @@ void handleWebServerGetTestNight() {
   addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
-    isNightModeTest = true;
-    setStripStatus();
-    renderStrip();
-    delay(6000);
-    isNightModeTest = false;
-    setStripStatus();
-    renderStrip();
+  isNightModeTest = true;
+  setStripStatus();
+  renderStrip();
+  delay(6000);
+  isNightModeTest = false;
+  setStripStatus();
+  renderStrip();
+
+  if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
+    apStartedMillis = millis();
+  }
 }
 
 void handleWebServerGetTestLeds() {
@@ -3159,6 +3195,10 @@ void handleWebServerGetTestLeds() {
       delay( 100 );
     }
   }
+
+  if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
+    apStartedMillis = millis();
+  }
 }
 
 void handleWebServerGetReboot() {
@@ -3170,6 +3210,14 @@ void handleWebServerGetReboot() {
   wifiWebServer.send( 200, getContentType( F("html") ), content );
   delay( 200 );
   ESP.restart();
+}
+
+void handleWebServerGetPing() {
+  wifiWebServer.send( 204, getContentType( F("txt") ), "" );
+
+  if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
+    apStartedMillis = millis();
+  }
 }
 
 void handleWebServerRedirect() {
@@ -3193,6 +3241,10 @@ void handleWebServerGetMap() {
       wifiWebServer.streamFile( file, getContentType( fileExtension ) );
       file.close();
     }
+
+    if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
+      apStartedMillis = millis();
+    }
     return;
   }
 
@@ -3208,6 +3260,10 @@ void handleWebServerGetMap() {
     }
     content += "}";
     wifiWebServer.send( 200, getContentType( F("json") ), content );
+
+    if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
+      apStartedMillis = millis();
+    }
     return;
   }
 
@@ -3342,6 +3398,10 @@ void handleWebServerGetMap() {
   } else {
     wifiWebServer.send( 200, getContentType( F("js") ), content );
   }
+
+  if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
+    apStartedMillis = millis();
+  }
 }
 
 void handleWebServerGetFavIcon() {
@@ -3377,6 +3437,7 @@ void configureWebServer() {
   wifiWebServer.on( HTML_PAGE_TEST_NIGHT_ENDPOINT, HTTP_GET, handleWebServerGetTestNight );
   wifiWebServer.on( HTML_PAGE_TESTLED_ENDPOINT, HTTP_GET, handleWebServerGetTestLeds );
   wifiWebServer.on( HTML_PAGE_REBOOT_ENDPOINT, HTTP_GET, handleWebServerGetReboot );
+  wifiWebServer.on( HTML_PAGE_PING_ENDPOINT, HTTP_GET, handleWebServerGetPing );
   wifiWebServer.on( HTML_PAGE_MAP_ENDPOINT, HTTP_GET, handleWebServerGetMap );
   wifiWebServer.on( HTML_PAGE_FAVICON_ENDPOINT, HTTP_GET, handleWebServerGetFavIcon );
   wifiWebServer.onNotFound([]() {
@@ -3422,7 +3483,7 @@ void loop() {
   }
   wifiWebServer.handleClient();
 
-  if( isApInitialized && ( calculateDiffMillis( apStartedMillis, millis() ) >= TIMEOUT_AP ) ) {
+  if( isApInitialized && isRouterSsidProvided() && ( calculateDiffMillis( apStartedMillis, millis() ) >= TIMEOUT_AP ) ) {
     shutdownAccessPoint();
     connectToWiFi( false );
   }
