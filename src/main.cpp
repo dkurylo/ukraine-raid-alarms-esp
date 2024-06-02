@@ -1401,6 +1401,10 @@ bool isRouterSsidProvided() {
   return strlen(wiFiClientSsid) != 0;
 }
 
+String getFullWiFiHostName() {
+  return String( getWiFiHostName() ) + "-" + String( ESP.getChipId() );
+}
+
 void connectToWiFi( bool forceReconnect ) {
   if( !isRouterSsidProvided() ) {
     createAccessPoint();
@@ -1414,7 +1418,7 @@ void connectToWiFi( bool forceReconnect ) {
   disconnectFromWiFi( false );
 
   Serial.print( String( F("Connecting to WiFi '") ) + String( wiFiClientSsid ) + String( F("'...") ) );
-  WiFi.hostname( ( String( getWiFiHostName() ) + "-" + String( ESP.getChipId() ) ).c_str() );
+  WiFi.hostname( getFullWiFiHostName().c_str() );
   WiFi.begin( wiFiClientSsid, wiFiClientPassword );
 
   if( WiFi.isConnected() ) {
@@ -2565,8 +2569,10 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".i:hover{background-color:#777;color:#DDD;}"
       ".stat{opacity:0.3;font-size:65%;border:1px solid #DDD;border-radius:4px;overflow:hidden;}"
       ".stat>span{padding:1px 4px;display:inline-block;}"
-      ".stat>span:first-of-type{background-color:#666;}"
       ".stat>span:not(:last-of-type){border-right:1px solid #DDD;}"
+      ".stat>span.lbl,.stat>span.btn{background-color:#666;}"
+      ".stat>span.btn{cursor:default;}"
+      ".stat>span.btn.on{background-color:#05C;}"
       "@media(max-device-width:800px) and (orientation:portrait){"
         ":root{--f:4vw;}"
         ".wrp{width:94%;max-width:100%;}"
@@ -2638,6 +2644,7 @@ const char* HTML_PAGE_TEST_NIGHT_ENDPOINT = "/testdim";
 const char* HTML_PAGE_UPDATE_ENDPOINT = "/update";
 const char* HTML_PAGE_RESET_ENDPOINT = "/reset";
 const char* HTML_PAGE_PING_ENDPOINT = "/ping";
+const char* HTML_PAGE_MONITOR_ENDPOINT = "/monitor";
 const char* HTML_PAGE_MAP_ENDPOINT = "/map";
 const char* HTML_PAGE_FAVICON_ENDPOINT = "/favicon.ico";
 
@@ -2665,6 +2672,7 @@ const char* HTML_PAGE_IS_BEEPING_ENABLED_NAME = "bpe";
 
 void handleWebServerGet() {
   String content;
+  content.reserve( 12500 ); //currently it's around 10600
   addHtmlPageStart( content );
   content += ( isApInitialized ? "" : ( String( F("<script>"
     "document.addEventListener(\"DOMContentLoaded\",()=>{"
@@ -2689,7 +2697,7 @@ void handleWebServerGet() {
       "setInterval(()=>{"
         "fetch('/ping').catch(e=>{"
         "});"
-      "},60000);"
+      "},30000);"
     "}"
     "function ex(el){"
       "Array.from(el.parentElement.parentElement.children).forEach(ch=>{"
@@ -2703,6 +2711,25 @@ void handleWebServerGet() {
         "sl.selectedIndex=i;"
         "break;"
       "}"
+    "}"
+    "let isMnt=false;"
+    "function mnt(){"
+      "isMnt=!isMnt;"
+      "mnf();"
+    "}"
+    "function mnf(){"
+      "if(!isMnt)return;"
+      "fetch(\"") ) + String( HTML_PAGE_MONITOR_ENDPOINT ) + String( F("\")"
+      ".then(resp=>resp.json())"
+      ".then(data=>{"
+        "for(const[key,value]of Object.entries(data.brt)){"
+          "document.getElementById(\"b_\"+key).innerText=value;"
+        "}"
+      "}).catch(e=>{"
+      "});"
+      "setTimeout(()=>{"
+        "mnf();"
+      "},5000);"
     "}"
   "</script>"
   "<form method=\"POST\">"
@@ -2800,7 +2827,14 @@ void handleWebServerGet() {
   "</div>"
   "<div class=\"fx\" style=\"padding-top:0.3em;\">"
     "<span>"
-      "<div class=\"stat\"><span>Яскравість</span><span>CUR ") ) + String( analogRead(A0) ) + String( F("</span><span>AVG ") ) + String( sensorBrightnessAverage ) + String( F("</span><span>REQ ") ) + String( ledStripBrightnessCurrent ) + String( F("</span><span>ON ") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent ) ) + String( F("</span><span>OFF ") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent ) ) + String( F("</span></div>"
+      "<div class=\"stat\">"
+        "<span class=\"btn\" onclick=\"this.classList.toggle('on');mnt();\">Яскравість</span>"
+        "<span>CUR <span id=\"b_cur\">") ) + String( analogRead(A0) ) + String( F("</span></span>"
+        "<span>AVG <span id=\"b_avg\">") ) + String( sensorBrightnessAverage ) + String( F("</span></span>"
+        "<span>REQ <span id=\"b_req\">") ) + String( ledStripBrightnessCurrent ) + String( F("</span></span>"
+        "<span>ON <span id=\"b_on\">") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent ) ) + String( F("</span></span>"
+        "<span>OFF <span id=\"b_off\">") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent ) ) + String( F("</span></span>"
+      "</div>"
     "</span>"
   "</div>"
 "</div>") );
@@ -3237,6 +3271,27 @@ void handleWebServerGetPing() {
   }
 }
 
+void handleWebServerGetMonitor() {
+  String content = String( F(""
+  "{"
+    "\"net\":{"
+      "\"host\":\"") ) + getFullWiFiHostName() + String( F("\""
+    "},"
+    "\"brt\":{"
+      "\"cur\":") ) + String( analogRead(A0) ) + String( F(","
+      "\"avg\":") ) + String( sensorBrightnessAverage ) + String( F(","
+      "\"req\":") ) + String( ledStripBrightnessCurrent ) + String( F(","
+      "\"on\":\"") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent ) ) + String( F("\","
+      "\"off\":\"") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent ) ) + String( F("\""
+    "},"
+    "\"ram\":{"
+      "\"heap\":\"") ) + String( ESP.getFreeHeap() ) + String( F("\","
+      "\"frag\":\"") ) + String( ESP.getHeapFragmentation() ) + String( F("\""
+    "}"
+  "}" ) );
+  wifiWebServer.send( 200, getContentType( F("json") ), content );
+}
+
 void handleWebServerRedirect() {
   wifiWebServer.sendHeader( F("Location"), String( F("http://") ) + WiFi.softAPIP().toString() );
   wifiWebServer.send( 302, getContentType( F("html") ), "" );
@@ -3255,6 +3310,7 @@ void handleWebServerGetMap() {
       if( fileExtensionDot != -1 ) {
           fileExtension = fileName.substring( fileExtensionDot + 1 );
       }
+      wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
       wifiWebServer.streamFile( file, getContentType( fileExtension ) );
       file.close();
     }
@@ -3286,6 +3342,12 @@ void handleWebServerGetMap() {
 
   String anchorId = wifiWebServer.arg("id");
   String mapId = anchorId == "" ? F("map") : anchorId;
+
+  if( anchorId == "" ) {
+    content.reserve( 10000 ); //currently around 8100
+  } else {
+    content.reserve( 6000 ); //currently around 5000
+  }
 
   if( anchorId == "" ) {
     addHtmlPageStart( content );
@@ -3411,8 +3473,10 @@ void handleWebServerGetMap() {
   }
 
   if( anchorId == "" ) {
+    wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
     wifiWebServer.send( 200, getContentType( F("html") ), content );
   } else {
+    wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
     wifiWebServer.send( 200, getContentType( F("js") ), content );
   }
 
@@ -3426,6 +3490,7 @@ void handleWebServerGetFavIcon() {
   if( !file ) {
     wifiWebServer.send( 404, getContentType( F("txt") ), F("File not found") );
   } else {
+    wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
     wifiWebServer.streamFile( file, F("image/x-icon") );
     file.close();
   }
@@ -3456,6 +3521,7 @@ void configureWebServer() {
   wifiWebServer.on( HTML_PAGE_RESET_ENDPOINT, HTTP_GET, handleWebServerGetReset );
   wifiWebServer.on( HTML_PAGE_REBOOT_ENDPOINT, HTTP_GET, handleWebServerGetReboot );
   wifiWebServer.on( HTML_PAGE_PING_ENDPOINT, HTTP_GET, handleWebServerGetPing );
+  wifiWebServer.on( HTML_PAGE_MONITOR_ENDPOINT, HTTP_GET, handleWebServerGetMonitor );
   wifiWebServer.on( HTML_PAGE_MAP_ENDPOINT, HTTP_GET, handleWebServerGetMap );
   wifiWebServer.on( HTML_PAGE_FAVICON_ENDPOINT, HTTP_GET, handleWebServerGetFavIcon );
   wifiWebServer.onNotFound([]() {
