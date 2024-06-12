@@ -7,7 +7,7 @@
 #ifdef ESP8266
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <ESP8266HTTPUpdateServer.h>
+#include <ESP8266HTTPUpdateServerMod.h>
 #include <ESP8266HTTPClient.h>
 #else //ESP32 or ESP32S2
 #include <WiFi.h>
@@ -333,8 +333,6 @@ HTTPUpdateServer httpUpdater;
 
 DNSServer dnsServer;
 WiFiClient wiFiClient; //used for AC; UA, VK and AI use WiFiClientSecure and init it separately
-//WiFiUDP ntpUdp;
-//NTPClient timeClient(ntpUdp);
 Adafruit_NeoPixel strip(STRIP_LED_COUNT, STRIP_PIN, NEO_GRB + NEO_KHZ800);
 
 
@@ -2567,12 +2565,14 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".i{color:#CCC;margin-left:0.2em;border:1px solid #777;border-radius:50%;background-color:#666;cursor:default;font-size:65%;vertical-align:top;width:1em;height:1em;display:inline-block;text-align:center;}"
       ".i:before{content:\"i\";position:relative;top:-0.07em;}"
       ".i:hover{background-color:#777;color:#DDD;}"
-      ".stat{opacity:0.3;font-size:65%;border:1px solid #DDD;border-radius:4px;overflow:hidden;}"
+      ".stat{font-size:65%;color:#888;border:1px solid #777;border-radius:4px;overflow:hidden;}"
       ".stat>span{padding:1px 4px;display:inline-block;}"
-      ".stat>span:not(:last-of-type){border-right:1px solid #DDD;}"
-      ".stat>span.lbl,.stat>span.btn{background-color:#666;}"
+      ".stat>span:not(:last-of-type){border-right:1px solid #777;}"
+      ".stat>span.lbl,.stat>span.btn{color:#888;background-color:#555;}"
       ".stat>span.btn{cursor:default;}"
-      ".stat>span.btn.on{background-color:#05C;}"
+      ".stat>span.btn:hover{background-color:#505050;}"
+      ".stat>span.btn.on{color:#48B;background-color:#246;}"
+      ".stat>span.btn.on:hover{background-color:#1A3A5A;}"
       "@media(max-device-width:800px) and (orientation:portrait){"
         ":root{--f:4vw;}"
         ".wrp{width:94%;max-width:100%;}"
@@ -2636,18 +2636,6 @@ const uint8_t getWiFiClientSsidNameMaxLength() { return WIFI_SSID_MAX_LENGTH - 1
 const uint8_t getWiFiClientSsidPasswordMaxLength() { return WIFI_PASSWORD_MAX_LENGTH - 1;}
 const uint8_t getRaidAlarmServerApiKeyMaxLength() { return RAID_ALARM_SERVER_API_KEY_LENGTH - 1;}
 
-const char* HTML_PAGE_ROOT_ENDPOINT = "/";
-const char* HTML_PAGE_STATUS_ENDPOINT = "/status";
-const char* HTML_PAGE_REBOOT_ENDPOINT = "/reboot";
-const char* HTML_PAGE_TESTLED_ENDPOINT = "/testled";
-const char* HTML_PAGE_TEST_NIGHT_ENDPOINT = "/testdim";
-const char* HTML_PAGE_UPDATE_ENDPOINT = "/update";
-const char* HTML_PAGE_RESET_ENDPOINT = "/reset";
-const char* HTML_PAGE_PING_ENDPOINT = "/ping";
-const char* HTML_PAGE_MONITOR_ENDPOINT = "/monitor";
-const char* HTML_PAGE_MAP_ENDPOINT = "/map";
-const char* HTML_PAGE_FAVICON_ENDPOINT = "/favicon.ico";
-
 const char* HTML_PAGE_WIFI_SSID_NAME = "ssid";
 const char* HTML_PAGE_WIFI_PWD_NAME = "pwd";
 const char* HTML_PAGE_RAID_SERVER_NAME = "srv";
@@ -2676,17 +2664,13 @@ void handleWebServerGet() {
   addHtmlPageStart( content );
   content += ( isApInitialized ? "" : ( String( F("<script>"
     "document.addEventListener(\"DOMContentLoaded\",()=>{"
-      "let xhr=new XMLHttpRequest();"
-      "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?id=map\",true);"
-      "xhr.onload=(e)=>{"
-        "if(xhr.readyState===4&&xhr.status===200){"
-          "let scriptEl=document.createElement('script');"
-          "scriptEl.textContent=xhr.responseText;"
-          "document.querySelector('#map').appendChild(scriptEl);"
-        "}"
-      "};"
-      "xhr.send(null);"
+      "fetch(\"/map?id=map\").then(resp=>resp.text()).then(data=>{"
+        "let scriptEl=document.createElement('script');"
+        "scriptEl.textContent=data;"
+        "document.querySelector('#map').appendChild(scriptEl);"
+      "}).catch(e=>{});"
       "pg();"
+      "mnf(true);"
     "});"
   "</script>"
   "<div id=\"map\"></div>") ) ) ) +
@@ -2695,8 +2679,7 @@ void handleWebServerGet() {
       "let ap=") ) + String( isApInitialized ) + String( F(";"
       "if(!ap)return;"
       "setInterval(()=>{"
-        "fetch('/ping').catch(e=>{"
-        "});"
+        "fetch(\"/ping\").catch(e=>{});"
       "},30000);"
     "}"
     "function ex(el){"
@@ -2717,16 +2700,14 @@ void handleWebServerGet() {
       "isMnt=!isMnt;"
       "mnf();"
     "}"
-    "function mnf(){"
-      "if(!isMnt)return;"
-      "fetch(\"") ) + String( HTML_PAGE_MONITOR_ENDPOINT ) + String( F("\")"
-      ".then(resp=>resp.json())"
-      ".then(data=>{"
+    "function mnf(isOnce){"
+      "if(!isOnce&&!isMnt)return;"
+      "fetch(\"/monitor\").then(resp=>resp.json()).then(data=>{"
         "for(const[key,value]of Object.entries(data.brt)){"
           "document.getElementById(\"b_\"+key).innerText=value;"
         "}"
-      "}).catch(e=>{"
-      "});"
+      "}).catch(e=>{});"
+      "if(isOnce)return;"
       "setTimeout(()=>{"
         "mnf();"
       "},5000);"
@@ -2814,26 +2795,26 @@ void handleWebServerGet() {
 "<div class=\"ft\">"
   "<div class=\"fx\">"
     "<span>"
-      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_TEST_NIGHT_ENDPOINT, F("Перевірити нічний режим") ) + String( F("<span class=\"i\" title=\"Застосуйте налаштування перед перевіркою!\"></span></span>"
-      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_TESTLED_ENDPOINT, F("Перевірити діоди") ) + String( F("</span>"
+      "<span class=\"sub\"><a href=\"/testdim\">Перевірити нічний режим</a><span class=\"i\" title=\"Застосуйте налаштування перед перевіркою!\"></span></span>"
+      "<span class=\"sub\"><a href=\"/testled\">Перевірити діоди</a></span>"
     "</span>"
   "</div>"
   "<div class=\"fx\">"
     "<span>"
-      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_UPDATE_ENDPOINT, F("Оновити") ) + String( F("<span class=\"i\" title=\"Оновити прошивку. Поточна версія: ") ) + getFirmwareVersion() + String( F("\"></span></span>"
-      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_RESET_ENDPOINT, F("Відновити") ) + String( F("<span class=\"i\" title=\"Відновити до заводських налаштувань\"></span></span>"
-      "<span class=\"sub\">") ) + getHtmlLink( HTML_PAGE_REBOOT_ENDPOINT, F("Перезавантажити") ) + String( F("</span>"
+      "<span class=\"sub\"><a href=\"/update\">Оновити</a><span class=\"i\" title=\"Оновити прошивку. Поточна версія: ") ) + getFirmwareVersion() + String( F("\"></span></span>"
+      "<span class=\"sub\"><a href=\"/reset\">Відновити</a><span class=\"i\" title=\"Відновити до заводських налаштувань\"></span></span>"
+      "<span class=\"sub\"><a href=\"/reboot\">Перезавантажити</a></span>"
     "</span>"
   "</div>"
   "<div class=\"fx\" style=\"padding-top:0.3em;\">"
     "<span>"
       "<div class=\"stat\">"
         "<span class=\"btn\" onclick=\"this.classList.toggle('on');mnt();\">Яскравість</span>"
-        "<span>CUR <span id=\"b_cur\">") ) + String( analogRead(A0) ) + String( F("</span></span>"
-        "<span>AVG <span id=\"b_avg\">") ) + String( sensorBrightnessAverage ) + String( F("</span></span>"
-        "<span>REQ <span id=\"b_req\">") ) + String( ledStripBrightnessCurrent ) + String( F("</span></span>"
-        "<span>ON <span id=\"b_on\">") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent ) ) + String( F("</span></span>"
-        "<span>OFF <span id=\"b_off\">") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent ) ) + String( F("</span></span>"
+        "<span>CUR <span id=\"b_cur\"></span></span>"
+        "<span>AVG <span id=\"b_avg\"></span></span>"
+        "<span>REQ <span id=\"b_req\"></span></span>"
+        "<span>ON <span id=\"b_on\"></span></span>"
+        "<span>OFF <span id=\"b_off\"></span></span>"
       "</div>"
     "</span>"
   "</div>"
@@ -3372,7 +3353,7 @@ void handleWebServerGetMap() {
     "';"
     "ae.appendChild(aes);"
     "ae.innerHTML+='") ) +
-      ( anchorId == "" ? String( F("<a href=\"/\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати налаштування</a>") ) : String( F("<a href=\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати мапу</a>") ) ) + String( F(""
+      ( anchorId == "" ? String( F("<a href=\"/\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати налаштування</a>") ) : String( F("<a href=\"/map\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати мапу</a>") ) ) + String( F(""
       "<div>"
         "<div class=\"mapl\" style=\"top:46.7%;left:3.0%;\">УЖГОРОД</div>"
         "<div class=\"mapl\" style=\"top:25.1%;left:10.5%;\">ЛЬВІВ</div>"
@@ -3432,7 +3413,7 @@ void handleWebServerGetMap() {
     "if(!map){"
       "map=document.createElement('img');"
       "map.classList.add('map');"
-      "map.setAttribute('src','") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f=map.svg');"
+      "map.setAttribute('src','/map?f=map.svg');"
       "ae.appendChild(map);"
     "}"
     "setInterval(()=>{"
@@ -3441,29 +3422,23 @@ void handleWebServerGetMap() {
     "updateMap();"
   "}"
   "function updateMap(){"
-    "let xhr=new XMLHttpRequest();"
-    "xhr.open(\"GET\",\"") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?d=1\",true);"
-    "xhr.onload=(e)=>{"
-      "if(xhr.readyState===4&&xhr.status===200){"
-        "let data=JSON.parse(xhr.responseText);"
-        "Object.entries(data).forEach(([region,status])=>{"
-          "let ae=document.querySelector('#") ) + mapId + String( F("');"
-          "if(!ae)return;"
-          "let mapc='map'+region;"
-          "let mapl='") ) + String( HTML_PAGE_MAP_ENDPOINT ) + String( F("?f='+'map_'+region+(status==1?'_1':status==0?'_0':'')+'.gif';"
-          "let map=ae.querySelector('img.'+mapc);"
-          "if(!map){"
-            "map=document.createElement('img');"
-            "map.classList.add(mapc);"
-            "map.setAttribute('src',mapl);"
-            "ae.appendChild(map);"
-          "}else{"
-            "if(map.src!=mapl)map.src=mapl;"
-          "}"
-        "});"
-      "}"
-    "};"
-    "xhr.send(null);"
+    "fetch(\"/map?d=1\").then(resp=>resp.json()).then(data=>{"
+      "Object.entries(data).forEach(([region,status])=>{"
+        "let ae=document.querySelector('#") ) + mapId + String( F("');"
+        "if(!ae)return;"
+        "let mapc='map'+region;"
+        "let mapl='/map?f='+'map_'+region+(status==1?'_1':status==0?'_0':'')+'.gif';"
+        "let map=ae.querySelector('img.'+mapc);"
+        "if(!map){"
+          "map=document.createElement('img');"
+          "map.classList.add(mapc);"
+          "map.setAttribute('src',mapl);"
+          "ae.appendChild(map);"
+        "}else{"
+          "if(map.src!=mapl)map.src=mapl;"
+        "}"
+      "});"
+    "}).catch(e=>{});"
   "}"
   "initMap();") ) +
   ( anchorId == "" ? String( F("</script></div>") ) : "" );
@@ -3513,17 +3488,17 @@ void startWebServer() {
 }
 
 void configureWebServer() {
-  wifiWebServer.on( HTML_PAGE_ROOT_ENDPOINT, HTTP_GET,  handleWebServerGet );
-  wifiWebServer.on( HTML_PAGE_ROOT_ENDPOINT, HTTP_POST, handleWebServerPost );
-  wifiWebServer.on( HTML_PAGE_STATUS_ENDPOINT, HTTP_GET,  handleWebServerGetStatus );
-  wifiWebServer.on( HTML_PAGE_TEST_NIGHT_ENDPOINT, HTTP_GET, handleWebServerGetTestNight );
-  wifiWebServer.on( HTML_PAGE_TESTLED_ENDPOINT, HTTP_GET, handleWebServerGetTestLeds );
-  wifiWebServer.on( HTML_PAGE_RESET_ENDPOINT, HTTP_GET, handleWebServerGetReset );
-  wifiWebServer.on( HTML_PAGE_REBOOT_ENDPOINT, HTTP_GET, handleWebServerGetReboot );
-  wifiWebServer.on( HTML_PAGE_PING_ENDPOINT, HTTP_GET, handleWebServerGetPing );
-  wifiWebServer.on( HTML_PAGE_MONITOR_ENDPOINT, HTTP_GET, handleWebServerGetMonitor );
-  wifiWebServer.on( HTML_PAGE_MAP_ENDPOINT, HTTP_GET, handleWebServerGetMap );
-  wifiWebServer.on( HTML_PAGE_FAVICON_ENDPOINT, HTTP_GET, handleWebServerGetFavIcon );
+  wifiWebServer.on( "/", HTTP_GET,  handleWebServerGet );
+  wifiWebServer.on( "/", HTTP_POST, handleWebServerPost );
+  wifiWebServer.on( "/status", HTTP_GET,  handleWebServerGetStatus );
+  wifiWebServer.on( "/testdim", HTTP_GET, handleWebServerGetTestNight );
+  wifiWebServer.on( "/testled", HTTP_GET, handleWebServerGetTestLeds );
+  wifiWebServer.on( "/reset", HTTP_GET, handleWebServerGetReset );
+  wifiWebServer.on( "/reboot", HTTP_GET, handleWebServerGetReboot );
+  wifiWebServer.on( "/ping", HTTP_GET, handleWebServerGetPing );
+  wifiWebServer.on( "/monitor", HTTP_GET, handleWebServerGetMonitor );
+  wifiWebServer.on( "/map", HTTP_GET, handleWebServerGetMap );
+  wifiWebServer.on( "/favicon.ico", HTTP_GET, handleWebServerGetFavIcon );
   wifiWebServer.onNotFound([]() {
     handleWebServerRedirect();
   });
