@@ -1,0 +1,15 @@
+.pio
+.vscode
+test
+lib
+include
+!.pio/
+.pio/*
+!.pio/build/
+.pio/build/*
+!.pio/build/d1_mini/
+.pio/build/d1_mini/*
+!.pio/build/d1_mini/firmware.bin
+!.pio/build/d1_mini/littlefs.bin
+resources/*_apikey.txt
+resources/gzip.exe
