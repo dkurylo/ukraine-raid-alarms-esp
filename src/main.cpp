@@ -85,6 +85,24 @@ const uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 110;
 #define BEEPER_PIN 13
 const bool IS_LOW_LEVEL_BUZZER = true;
 
+//map settings
+bool hasRetrievalError = false;
+unsigned long retrievalErrorMillis = 0;
+const uint16_t TIMEOUT_RETRIEVAL_ERROR_SECONDS = 300;
+
+void setRetrievalError() {
+  if( hasRetrievalError ) return;
+  hasRetrievalError = true;
+  retrievalErrorMillis = millis();
+}
+
+void resetRetrievalError() {
+  if( !hasRetrievalError ) return;
+  hasRetrievalError = false;
+  retrievalErrorMillis = 0;
+}
+
+
 //"vadimklimenko.com"
 //Periodically issues get request and receives large JSON with full alarm data. When choosing VK_RAID_ALARM_SERVER, config variables start with VK_
 //API URL: none
@@ -336,78 +354,6 @@ WiFiClient wiFiClient; //used for AC; UA, VK and AI use WiFiClientSecure and ini
 Adafruit_NeoPixel strip(STRIP_LED_COUNT, STRIP_PIN, NEO_GRB + NEO_KHZ800);
 
 
-//init methods
-bool isFirstLoopRun = true;
-unsigned long previousMillisLedAnimation = millis();
-unsigned long previousMillisRaidAlarmCheck = millis();
-unsigned long previousMillisInternalLed = millis();
-unsigned long previousMillisSensorBrightnessCheck = millis();
-
-bool forceRaidAlarmUpdate = false;
-
-const std::vector<std::vector<const char*>> getRegions() {
-  switch( currentRaidAlarmServer ) {
-    case VK_RAID_ALARM_SERVER:
-      return getVkRegions();
-    case UA_RAID_ALARM_SERVER:
-      return getUaRegions();
-    case AC_RAID_ALARM_SERVER:
-      return getAcRegions();
-    case AI_RAID_ALARM_SERVER:
-      return getAiRegions();
-    default:
-      return {};
-  }
-}
-
-int8_t getRegionStatusByLedIndex( const int8_t& ledIndex, const std::vector<std::vector<const char*>>& allRegions ) {
-  int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
-  for( const auto& regionName : allRegions[ledIndex] ) {
-    int8_t regionAlarmStatus = regionNameToRaidAlarmStatus[regionName];
-    if( regionAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
-    if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
-    alarmStatus = regionAlarmStatus;
-  }
-  return alarmStatus;
-}
-
-void initAlarmStatus() {
-  const std::vector<std::vector<const char*>>& allRegions = getRegions();
-  uint8_t allRegionsSize = allRegions.size();
-
-  regionNameToRaidAlarmStatus.clear();
-  transitionAnimations.reserve( allRegionsSize );
-
-  for( uint8_t ledIndex = 0; ledIndex < allRegionsSize; ++ledIndex ) {
-    for( const auto& regionName : allRegions[ledIndex] ) {
-      regionNameToRaidAlarmStatus[regionName] = RAID_ALARM_STATUS_UNINITIALIZED;
-    }
-    if( transitionAnimations.size() > ledIndex ) {
-      transitionAnimations[ledIndex].clear();
-    } else {
-      transitionAnimations.push_back( std::list<uint32_t>() );
-    }
-    
-  }
-  uaResetLastActionHash();
-}
-
-void initVariables() {
-  if( wiFiClient.connected() ) {
-    wiFiClient.stop();
-  }
-  initAlarmStatus();
-
-  isFirstLoopRun = true;
-  unsigned long currentMillis = millis();
-  previousMillisLedAnimation = currentMillis;
-  previousMillisRaidAlarmCheck = currentMillis;
-  previousMillisInternalLed = currentMillis;
-  previousMillisSensorBrightnessCheck = currentMillis;
-}
-
-
-
 //helper methods
 unsigned long calculateDiffMillis( unsigned long startMillis, unsigned long endMillis ) { //this function accounts for millis overflow when calculating millis difference
   if( endMillis >= startMillis ) {
@@ -563,6 +509,80 @@ File getFileFromFlash( String fileName ) {
     file = LittleFS.open( "/" + fileName, "r" );
   }
   return file;
+}
+
+
+//init methods
+bool isFirstLoopRun = true;
+unsigned long previousMillisLedAnimation = millis();
+unsigned long previousMillisRaidAlarmCheck = millis();
+unsigned long previousMillisInternalLed = millis();
+unsigned long previousMillisSensorBrightnessCheck = millis();
+
+bool forceRaidAlarmUpdate = false;
+
+const std::vector<std::vector<const char*>> getRegions() {
+  switch( currentRaidAlarmServer ) {
+    case VK_RAID_ALARM_SERVER:
+      return getVkRegions();
+    case UA_RAID_ALARM_SERVER:
+      return getUaRegions();
+    case AC_RAID_ALARM_SERVER:
+      return getAcRegions();
+    case AI_RAID_ALARM_SERVER:
+      return getAiRegions();
+    default:
+      return {};
+  }
+}
+
+int8_t getRegionStatusByLedIndex( const int8_t& ledIndex, const std::vector<std::vector<const char*>>& allRegions ) {
+  int8_t alarmStatus = RAID_ALARM_STATUS_UNINITIALIZED;
+  if( hasRetrievalError && ( calculateDiffMillis( retrievalErrorMillis, millis() ) >= ( TIMEOUT_RETRIEVAL_ERROR_SECONDS * 1000 ) ) ) {
+    return alarmStatus;
+  }
+  for( const auto& regionName : allRegions[ledIndex] ) {
+    int8_t regionAlarmStatus = regionNameToRaidAlarmStatus[regionName];
+    if( regionAlarmStatus == RAID_ALARM_STATUS_UNINITIALIZED ) continue;
+    if( alarmStatus == RAID_ALARM_STATUS_ACTIVE ) continue; //if at least one region in the group is active, the whole region will be active
+    alarmStatus = regionAlarmStatus;
+  }
+  return alarmStatus;
+}
+
+void initAlarmStatus() {
+  const std::vector<std::vector<const char*>>& allRegions = getRegions();
+  uint8_t allRegionsSize = allRegions.size();
+
+  regionNameToRaidAlarmStatus.clear();
+  transitionAnimations.reserve( allRegionsSize );
+
+  for( uint8_t ledIndex = 0; ledIndex < allRegionsSize; ++ledIndex ) {
+    for( const auto& regionName : allRegions[ledIndex] ) {
+      regionNameToRaidAlarmStatus[regionName] = RAID_ALARM_STATUS_UNINITIALIZED;
+    }
+    if( transitionAnimations.size() > ledIndex ) {
+      transitionAnimations[ledIndex].clear();
+    } else {
+      transitionAnimations.push_back( std::list<uint32_t>() );
+    }
+    
+  }
+  uaResetLastActionHash();
+}
+
+void initVariables() {
+  if( wiFiClient.connected() ) {
+    wiFiClient.stop();
+  }
+  initAlarmStatus();
+
+  isFirstLoopRun = true;
+  unsigned long currentMillis = millis();
+  previousMillisLedAnimation = currentMillis;
+  previousMillisRaidAlarmCheck = currentMillis;
+  previousMillisInternalLed = currentMillis;
+  previousMillisSensorBrightnessCheck = currentMillis;
 }
 
 
@@ -1713,13 +1733,16 @@ void vkRetrieveAndProcessServerData() {
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
+        resetRetrievalError();
         setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
+        resetRetrievalError();
         setStripStatus( STRIP_STATUS_OK );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
       }
     } else {
+      setRetrievalError();
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
       WiFiClient *stream = httpClient.getStreamPtr();
@@ -1730,6 +1753,7 @@ void vkRetrieveAndProcessServerData() {
       Serial.println();
     }
   } else {
+    setRetrievalError();
     setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
     Serial.println( String( F(" ERROR: ") ) + httpClient.errorToString( httpCode ) );
   }
@@ -1876,19 +1900,24 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
+        resetRetrievalError();
         setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
+        resetRetrievalError();
         setStripStatus( STRIP_STATUS_OK );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
       }
     } else if( httpCode == 304 ) {
+      resetRetrievalError();
       setStripStatus( STRIP_STATUS_OK );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
     } else if( httpCode == 429 ) {
+      setRetrievalError();
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
     } else {
+      setRetrievalError();
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
       WiFiClient *stream = httpClient.getStreamPtr();
@@ -1899,6 +1928,7 @@ bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
       Serial.println();
     }
   } else {
+    setRetrievalError();
     setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
     Serial.println( String( F(" ERROR: ") ) + httpClient.errorToString( httpCode ) );
   }
@@ -2219,20 +2249,25 @@ void uaRetrieveAndProcessServerData() {
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
+        resetRetrievalError();
         setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
+        resetRetrievalError();
         setStripStatus( STRIP_STATUS_OK );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
         isSuccess = true;
       }
     } else if( httpCode == 304 ) {
+      resetRetrievalError();
       setStripStatus( STRIP_STATUS_OK );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
     } else if( httpCode == 429 ) {
+      setRetrievalError();
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
     } else {
+      setRetrievalError();
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
       WiFiClient *stream = httpClient.getStreamPtr();
@@ -2243,6 +2278,7 @@ void uaRetrieveAndProcessServerData() {
       Serial.println();
     }
   } else {
+    setRetrievalError();
     setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
     Serial.println( String( F(" ERROR: ") ) + httpClient.errorToString( httpCode ) );
   }
@@ -2327,7 +2363,10 @@ bool acProcessServerData( String payload ) {
 bool acRetrieveAndProcessServerData() {
   String payload = "";
 
-  if( !WiFi.isConnected() ) return false;
+  if( !WiFi.isConnected() ) {
+    setRetrievalError();
+    return false;
+  }
 
   bool doReconnectToServer = false;
   if( wiFiClient.connected() && ( calculateDiffMillis( acWifiRaidAlarmDataLastProcessedMillis, millis() ) > TIMEOUT_TCP_SERVER_DATA ) ) {
@@ -2352,11 +2391,13 @@ bool acRetrieveAndProcessServerData() {
       delay( 1000 );
     }
     if( wiFiClient.connected() ) {
+      resetRetrievalError();
       acWifiRaidAlarmDataLastProcessedMillis = millis();
       wiFiClient.write( raidAlarmServerApiKey );
       setStripStatus( STRIP_STATUS_OK );
       Serial.println( F(" done") );
     } else {
+      setRetrievalError();
       setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
       Serial.println( F(" ERROR: server connection is down") );
     }
@@ -2488,19 +2529,24 @@ void aiRetrieveAndProcessServerData() {
       }
 
       if( reportedResponseLength != 0 && actualResponseLength < reportedResponseLength ) {
+        resetRetrievalError();
         setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: incomplete data: ") + String( actualResponseLength ) + "/" + String( reportedResponseLength ) );
       } else {
+        resetRetrievalError();
         setStripStatus( STRIP_STATUS_OK );
         Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done | data: ") + String( actualResponseLength ) + ( reportedResponseLength != 0 ? ( "/" + String( reportedResponseLength ) ) : "" ) + F(" | time: ") + String( calculateDiffMillis( processingTimeStartMillis, millis() ) ) );
       }
     } else if( httpCode == 304 ) {
+      resetRetrievalError();
       setStripStatus( STRIP_STATUS_OK );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" done: Not Modified: ") + String( httpCode ) );
     } else if( httpCode == 429 ) {
+      setRetrievalError();
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: Too many requests: ") + String( httpCode ) );
     } else {
+      setRetrievalError();
       setStripStatus( STRIP_STATUS_SERVER_COMMUNICATION_ERROR );
       Serial.println( "-" + String( ESP.getFreeHeap() ) + F(" ERROR: unexpected HTTP code: ") + String( httpCode ) + F(". The error response is:") );
       WiFiClient *stream = httpClient.getStreamPtr();
@@ -2511,6 +2557,7 @@ void aiRetrieveAndProcessServerData() {
       Serial.println();
     }
   } else {
+    setRetrievalError();
     setStripStatus( STRIP_STATUS_SERVER_CONNECTION_ERROR );
     Serial.println( String( F(" ERROR: ") ) + httpClient.errorToString( httpCode ) );
   }
@@ -3310,7 +3357,7 @@ void handleWebServerGetMap() {
     const std::vector<std::vector<const char*>>& allRegions = getRegions();
     for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
       int8_t alarmStatus = getRegionStatusByLedIndex( ledIndex, allRegions );
-      content += String( ledIndex != 0 ? "," : "" ) + "\"" + String( ledIndex ) + "\":" + String( alarmStatus == RAID_ALARM_STATUS_INACTIVE ? ( showOnlyActiveAlarms ? "-1" : "0" ) : ( alarmStatus == RAID_ALARM_STATUS_ACTIVE ? "1" : "-1" ) );
+      content += String( ledIndex != 0 ? "," : "" ) + "\"" + String( ledIndex ) + "\":" + String( alarmStatus == RAID_ALARM_STATUS_INACTIVE ? "0" : ( alarmStatus == RAID_ALARM_STATUS_ACTIVE ? "1" : "-1" ) );
     }
     content += "}";
     wifiWebServer.send( 200, getContentType( F("json") ), content );
@@ -3556,6 +3603,7 @@ void loop() {
             vkRetrieveAndProcessServerData();
             processAlertnessLevel();
           } else {
+            setRetrievalError();
             initAlarmStatus();
             resetAlertnessLevel();
             connectToWiFi( false );
@@ -3570,6 +3618,7 @@ void loop() {
             uaRetrieveAndProcessServerData();
             processAlertnessLevel();
           } else {
+            setRetrievalError();
             initAlarmStatus();
             resetAlertnessLevel();
             connectToWiFi( false );
@@ -3583,6 +3632,7 @@ void loop() {
         if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
           forceRaidAlarmUpdate = false;
           if( !WiFi.isConnected() ) {
+            setRetrievalError();
             initAlarmStatus();
             resetAlertnessLevel();
             connectToWiFi( false );
@@ -3597,6 +3647,7 @@ void loop() {
             aiRetrieveAndProcessServerData();
             processAlertnessLevel();
           } else {
+            setRetrievalError();
             initAlarmStatus();
             resetAlertnessLevel();
             connectToWiFi( false );
