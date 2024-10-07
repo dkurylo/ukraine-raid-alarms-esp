@@ -25,6 +25,8 @@
 bool isNewBoard = false;
 const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
 
+#define BRIGHTNESS_INPUT_PIN A0
+
 //wifi access point configuration
 const char* getWiFiAccessPointSsid() { const char* result = "Air Raid Monitor"; return result; };
 const char* getWiFiAccessPointPassword() { const char* result = "1029384756"; return result; };
@@ -78,8 +80,8 @@ const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
 
 //brightness settings
 const uint16_t DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK = 100;
-const uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 20;
-const uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 110;
+const uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 8;
+const uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 255;
 
 //beeper settings
 #define BEEPER_PIN 13
@@ -88,7 +90,7 @@ const bool IS_LOW_LEVEL_BUZZER = true;
 //map settings
 bool hasRetrievalError = false;
 unsigned long retrievalErrorMillis = 0;
-const uint16_t TIMEOUT_RETRIEVAL_ERROR_SECONDS = 300;
+const uint16_t TIMEOUT_RETRIEVAL_ERROR_SECONDS = 300; //if no information is received after this time, the LEDs will turn off as the alarm status will start to be outdated
 
 void setRetrievalError() {
   if( hasRetrievalError ) return;
@@ -1081,7 +1083,7 @@ uint8_t sensorBrightnessSamplesTaken = 0;
 
 void calculateLedStripBrightness() {
   uint8_t sensorBrightnessSamplesToTake = 50;
-  uint16_t currentBrightness = analogRead(A0);
+  uint16_t currentBrightness = analogRead( BRIGHTNESS_INPUT_PIN );
   if( sensorBrightnessSamplesTaken < sensorBrightnessSamplesToTake ) {
     sensorBrightnessSamplesTaken++;
   }
@@ -1258,22 +1260,22 @@ bool setStripStatus() {
   bool dimLedAtNight = false;
 
   if( isApInitialized ) {
-    ledColor = { 9, 0, 9 };
+    ledColor = { 7, 7, 7 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_WIFI_CONNECTING ) {
-    ledColor = { 0, 0, 15 };
+    ledColor = { 0, 0, 16 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_WIFI_ERROR ) {
-    ledColor = { 0, 9, 9 };
+    ledColor = { 9, 0, 9 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_SERVER_CONNECTION_ERROR ) {
-    ledColor = { 0, 15, 0 };
+    ledColor = { 0, 16, 0 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_SERVER_COMMUNICATION_ERROR ) {
     ledColor = { 9, 9, 0 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING_ERROR ) {
-    ledColor = { 15, 0, 0 };
+    ledColor = { 16, 0, 0 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_PROCESSING ) {
     if( showStripIdleStatusLed ) {
@@ -2594,6 +2596,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".ex.exc.exon{height:inherit;}.ex.exc.exon>*{visibility:initial;}"
       "label{flex:none;padding-right:0.6em;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
       "input,select{width:100%;padding:0.1em 0.2em;}"
+      "select.mid{text-align:center;}"
       "input[type=\"radio\"],input[type=\"checkbox\"]{flex:none;margin:0.1em 0;width:calc(var(--f)*1.2);height:calc(var(--f)*1.2);}"
       "input[type=\"radio\"]+label,input[type=\"checkbox\"]+label{padding-left:0.6em;padding-right:initial;flex:1 1 auto;max-width:initial;}"
       "input[type=\"range\"]{-webkit-appearance:none;background:transparent;padding:0;}"
@@ -3020,14 +3023,14 @@ void handleWebServerPost() {
   String htmlPageStripLedBrightnessReceived = wifiWebServer.arg( HTML_PAGE_BRIGHTNESS_NAME );
   uint stripLedBrightnessReceived = htmlPageStripLedBrightnessReceived.toInt();
   bool stripLedBrightnessReceivedPopulated = false;
-  if( stripLedBrightnessReceived > 0 || stripLedBrightnessReceived <= 255 ) {
+  if( stripLedBrightnessReceived > 0 && stripLedBrightnessReceived <= 255 ) {
     stripLedBrightnessReceivedPopulated = true;
   }
 
   String htmlPageStripLedBrightnessDimmingNightReceived = wifiWebServer.arg( HTML_PAGE_BRIGHTNESS_NIGHT_NAME );
   uint stripLedBrightnessDimmingNightReceived = htmlPageStripLedBrightnessDimmingNightReceived.toInt();
   bool stripLedBrightnessDimmingNightReceivedPopulated = false;
-  if( stripLedBrightnessDimmingNightReceived > 0 || stripLedBrightnessDimmingNightReceived <= 255 ) {
+  if( stripLedBrightnessDimmingNightReceived > 0 && stripLedBrightnessDimmingNightReceived <= 255 ) {
     stripLedBrightnessDimmingNightReceivedPopulated = true;
   }
 
@@ -3306,7 +3309,7 @@ void handleWebServerGetMonitor() {
       "\"host\":\"") ) + getFullWiFiHostName() + String( F("\""
     "},"
     "\"brt\":{"
-      "\"cur\":") ) + String( analogRead(A0) ) + String( F(","
+      "\"cur\":") ) + String( analogRead( BRIGHTNESS_INPUT_PIN ) ) + String( F(","
       "\"avg\":") ) + String( sensorBrightnessAverage ) + String( F(","
       "\"req\":") ) + String( ledStripBrightnessCurrent ) + String( F(","
       "\"on\":\"") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent ) ) + String( F("\","
@@ -3315,6 +3318,9 @@ void handleWebServerGetMonitor() {
     "\"ram\":{"
       "\"heap\":\"") ) + String( ESP.getFreeHeap() ) + String( F("\","
       "\"frag\":\"") ) + String( ESP.getHeapFragmentation() ) + String( F("\""
+    "},"
+    "\"cpu\":{"
+      "\"freq\":\"") ) + String( ESP.getCpuFreqMHz() ) + String( F("\""
     "}"
   "}" ) );
   wifiWebServer.send( 200, getContentType( F("json") ), content );
