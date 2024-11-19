@@ -80,8 +80,8 @@ const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
 
 //brightness settings
 const uint16_t DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK = 100;
-const uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 8;
-const uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 255;
+const uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 10;
+const uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 512;
 
 //beeper settings
 #define BEEPER_PIN 13
@@ -1096,7 +1096,11 @@ void calculateLedStripBrightness() {
     if( sensorBrightnessAverage <= SENSOR_BRIGHTNESS_NIGHT_LEVEL ) {
       ledStripBrightnessCurrent = nightBrightness;
     } else {
-      ledStripBrightnessCurrent = nightBrightness + static_cast<double>( stripLedBrightness - nightBrightness ) * ( sensorBrightnessAverage - SENSOR_BRIGHTNESS_NIGHT_LEVEL ) / ( SENSOR_BRIGHTNESS_DAY_LEVEL - SENSOR_BRIGHTNESS_NIGHT_LEVEL );
+      float normalizedSensorBrightnessAverage = (float)(sensorBrightnessAverage - SENSOR_BRIGHTNESS_NIGHT_LEVEL) / ( SENSOR_BRIGHTNESS_DAY_LEVEL - SENSOR_BRIGHTNESS_NIGHT_LEVEL );
+      float steepnessCoefficient = 2.0;
+      float easingCoefficient = 1 - powf( 1 - normalizedSensorBrightnessAverage, steepnessCoefficient );
+      ledStripBrightnessCurrent = nightBrightness + static_cast<double>( (stripLedBrightness - nightBrightness ) * easingCoefficient );
+      //ledStripBrightnessCurrent = nightBrightness + static_cast<double>( stripLedBrightness - nightBrightness ) * ( sensorBrightnessAverage - SENSOR_BRIGHTNESS_NIGHT_LEVEL ) / ( SENSOR_BRIGHTNESS_DAY_LEVEL - SENSOR_BRIGHTNESS_NIGHT_LEVEL );
     }
   }
 }
@@ -1403,9 +1407,7 @@ void disconnectFromWiFi( bool erasePreviousCredentials ) {
     WiFi.disconnect( false, erasePreviousCredentials );
     while( true ) {
       wifiStatus = WiFi.status();
-      if( wifiStatus == WL_DISCONNECTED || wifiStatus == WL_IDLE_STATUS ) {
-        break;
-      }
+      if( wifiStatus != WL_CONNECTED ) break;
       if( calculateDiffMillis( wiFiConnectDotDelayStartedMillis, millis() ) >= 500 ) {
         Serial.print( "." );
         wiFiConnectDotDelayStartedMillis = millis();
@@ -2611,7 +2613,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       ".ft{margin-top:1em;}"
       ".pl{padding-left:0.6em;}"
       ".pll{padding-left:calc(var(--f)*1.2 + 0.6em);}"
-      ".lnk{margin:auto;color:#AAA;}"
+      ".lnk{margin:auto;color:#AAA;;display:inline-block;}"
       ".i{color:#CCC;margin-left:0.2em;border:1px solid #777;border-radius:50%;background-color:#666;cursor:default;font-size:65%;vertical-align:top;width:1em;height:1em;display:inline-block;text-align:center;}"
       ".i:before{content:\"i\";position:relative;top:-0.07em;}"
       ".i:hover{background-color:#777;color:#DDD;}"
@@ -2631,7 +2633,13 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
   "</head>"
   "<body>"
     "<div class=\"wrp\">"
-      "<h2>МАПА ПОВІТРЯНИХ ТРИВОГ<div class=\"lnk\" style=\"font-size:50%;\">Розробник: <a href=\"mailto:kurylo.press@gmail.com?subject=Мапа повітряних тривог\">Дмитро Курило</a></div></h2>";
+      "<h2>"
+        "МАПА ПОВІТРЯНИХ ТРИВОГ"
+        "<div style=\"line-height:0.5;\">"
+          "<div class=\"lnk\" style=\"font-size:50%;\">Розробник: <a href=\"mailto:kurylo.press@gmail.com?subject=Мапа повітряних тривог\">Дмитро Курило</a></div> "
+          "<div class=\"lnk\" style=\"font-size:50%;\"><a href=\"https://github.com/dkurylo/ukraine-raid-alarms-esp\" target=\"_blank\">GitHub</a></div>"
+        "</div>"
+      "</h2>";
 const char HTML_PAGE_END[] PROGMEM = "</div>"
   "</body>"
 "</html>";
