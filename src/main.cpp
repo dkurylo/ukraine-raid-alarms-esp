@@ -337,6 +337,7 @@ std::vector<std::list<uint32_t>> transitionAnimations; //1 byte - unused, 2 byte
 uint8_t currentRaidAlarmServer = VK_RAID_ALARM_SERVER;
 
 int8_t alertnessHomeRegionIndex = -1;
+int8_t alertnessSensitivityLevel = 3;
 
 bool isBeepingEnabled = false;
 std::list<uint32_t> beeperBeeps; //1 byte - unused, 2+3 byte - time, 4 byte - isBeeping
@@ -607,7 +608,8 @@ const uint16_t eepromUaRaidAlarmApiKeyIndex = eepromIsBeepingEnabledIndex + 1;
 const uint16_t eepromAcRaidAlarmApiKeyIndex = eepromUaRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
 const uint16_t eepromAiRaidAlarmApiKeyIndex = eepromAcRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
 const uint16_t eepromAlertnessHomeRegionIndex = eepromAiRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
-const uint16_t eepromLastByteIndex = eepromAlertnessHomeRegionIndex + 1;
+const uint16_t eepromAlertnessSensitivityLevelIndex = eepromAlertnessHomeRegionIndex + 1;
+const uint16_t eepromLastByteIndex = eepromAlertnessSensitivityLevelIndex + 1;
 
 const uint16_t EEPROM_ALLOCATED_SIZE = eepromLastByteIndex;
 void initEeprom() {
@@ -770,6 +772,7 @@ void loadEepromData() {
     readEepromBoolValue( eepromIsBeepingEnabledIndex, isBeepingEnabled, true );
     readRaidAlarmServerApiKey( -1 );
     readEepromIntValue( eepromAlertnessHomeRegionIndex, alertnessHomeRegionIndex, true );
+    readEepromIntValue( eepromAlertnessSensitivityLevelIndex, alertnessSensitivityLevel, true );
 
   } else { //fill EEPROM with default values when starting the new board
     writeEepromBoolValue( eepromIsNewBoardIndex, false );
@@ -792,6 +795,7 @@ void loadEepromData() {
     writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
     writeEepromCharArray( eepromAiRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
     writeEepromIntValue( eepromAlertnessHomeRegionIndex, alertnessHomeRegionIndex );
+    writeEepromIntValue( eepromAlertnessSensitivityLevelIndex, alertnessSensitivityLevel );
 
     isNewBoard = false;
   }
@@ -1068,9 +1072,9 @@ void processAlertnessLevel() {
     alertLevelInHomeRegionStartTimeMillis = 0;
   }
 
-  if( newAlertLevel != -1 && ( oldAlertLevel == -1 || newAlertLevel < oldAlertLevel ) ) {
+  if( newAlertLevel != -1 && ( oldAlertLevel == -1 || newAlertLevel < oldAlertLevel ) && newAlertLevel <= alertnessSensitivityLevel ) {
     signalAlertnessLevelIncrease();
-  } else if( oldAlertLevel != -1 && ( newAlertLevel == -1 || newAlertLevel > oldAlertLevel ) ) {
+  } else if( oldAlertLevel != -1 && ( newAlertLevel == -1 || newAlertLevel > oldAlertLevel ) && oldAlertLevel <= alertnessSensitivityLevel ) {
     signalAlertnessLevelDecrease();
   }
 }
@@ -2715,6 +2719,7 @@ const char* HTML_PAGE_BRIGHTNESS_NIGHT_NAME = "brtn";
 const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 const char* HTML_PAGE_HOME_REGION_NAME = "hmr";
 const char* HTML_PAGE_IS_BEEPING_ENABLED_NAME = "bpe";
+const char* HTML_PAGE_SENSITIVITY_LEVEL_NAME = "bps";
 
 void handleWebServerGet() {
   String content;
@@ -2842,6 +2847,16 @@ void handleWebServerGet() {
       "<script>op('") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("','") ) + String( alertnessHomeRegionIndex ) + String( F("');</script>"
     "</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Озвучувати тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_IS_BEEPING_ENABLED_NAME, HTML_PAGE_IS_BEEPING_ENABLED_NAME, 0, 0, false, isBeepingEnabled ) + String( F("</div>"
+    "<div class=\"fi pl\">"
+      "<label for=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\">Чутливість озвучуваня:</label>"
+      "<select id=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\" name=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\">"
+        "<option value=\"0\">Моя область (0)</option>"
+        "<option value=\"1\">Моя та сусідня область (1)</option>"
+        "<option value=\"2\">Моя та сусід сусідньої області (2)</option>"
+        "<option value=\"3\">Моя та та сусід сусіда сусідньої області (3)</option>"
+      "</select>"
+      "<script>op('") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("','") ) + String( alertnessSensitivityLevel ) + String( F("');</script>"
+    "</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Показувати лише тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Підсвічувати статусний діод"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + String( F("</div>"
     "<div class=\"fi pl\">") ) + getHtmlInput( F("Режим вечірки (зміна кольору)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + String( F("</div>"
@@ -3060,6 +3075,13 @@ void handleWebServerPost() {
     homeRegionReceivedPopulated = true;
   }
 
+  String htmlPageAlertnessSensitivityLevelReceived = wifiWebServer.arg( HTML_PAGE_SENSITIVITY_LEVEL_NAME );
+  uint8_t alertnessSensitivityLevelReceived = htmlPageAlertnessSensitivityLevelReceived.toInt();
+  bool alertnessSensitivityLevelReceivedPopulated = false;
+  if( alertnessSensitivityLevelReceived >= 0 ) {
+    alertnessSensitivityLevelReceivedPopulated = true;
+  }
+
   bool isWiFiChanged = strcmp( wiFiClientSsid, htmlPageSsidNameReceived.c_str() ) != 0 || strcmp( wiFiClientPassword, htmlPageSsidPasswordReceived.c_str() ) != 0;
   bool isDataSourceChanged = raidAlarmServerReceivedPopulated && raidAlarmServerReceived != currentRaidAlarmServer;
 
@@ -3178,6 +3200,12 @@ void handleWebServerPost() {
     resetAlertnessLevel();
     processAlertnessLevel();
     writeEepromIntValue( eepromAlertnessHomeRegionIndex, homeRegionReceived );
+  }
+
+  if( alertnessSensitivityLevelReceivedPopulated && alertnessSensitivityLevelReceived != alertnessSensitivityLevel ) {
+    alertnessSensitivityLevel = alertnessSensitivityLevelReceived;
+    Serial.println( F("Alertness sensitivity level updated") );
+    writeEepromIntValue( eepromAlertnessSensitivityLevelIndex, alertnessSensitivityLevelReceived );
   }
 
   if( isDataSourceChanged ) {
