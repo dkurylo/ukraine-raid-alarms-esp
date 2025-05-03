@@ -106,7 +106,8 @@ void resetRetrievalError() {
 
 
 //"vadimklimenko.com"
-//Periodically issues get request and receives large JSON with full alarm data. When choosing VK_RAID_ALARM_SERVER, config variables start with VK_
+//Periodically issues get request and receives large JSON with full alarm data.
+//When choosing VK_RAID_ALARM_SERVER, config variables start with VK_
 //API URL: none
 //+ Does not require API_KEY to function
 //- Returns large JSON which is slower to retrieve and process
@@ -149,10 +150,12 @@ const std::vector<std::vector<const char*>> getVkRegions() {
 }
 
 //"ukrainealarm.com"
-//Periodically issues get request to detect whether there is status update, if there is one, then receives large JSON with active alarms. When choosing UA_RAID_ALARM_SERVER, config variables start with UA_
+//Periodically issues get request to detect whether there is status update, if there is one, then receives large JSON with active alarms.
+//When choosing UA_RAID_ALARM_SERVER, config variables start with UA_
 //API URL: https://api.ukrainealarm.com/swagger/index.html
 //+ Returns small JSON when no alarm updates are detected
 //+ Faster update period (checked with 10s, and it's OK)
+//+ Official Alarms system
 //- Can return large JSON when alarm updates are detected, which is slower to retrieve and process
 //- Requires API_KEY to function
 const uint8_t UA_RAID_ALARM_SERVER = 2;
@@ -181,7 +184,7 @@ const std::vector<std::vector<const char*>> getUaRegions() {
     { "12" }, //Запорізька область
     { "9" }, //Дніпропетровська область
     { "19" }, //Полтавська область
-    { "24" }, //Черкаська область
+    { "152", "153", "150", "151" }, //Черкаська область
     { "15" }, //Кіровоградська область
     { "17" }, //Миколаївська область
     { "18" }, //Одеська область
@@ -196,12 +199,14 @@ void uaResetLastActionHash() {
   uaLastActionHash = 0;
 }
 
-//"tcp.alerts.com.ua" - uses TCP connection and receives alarm updates instantly from server. When choosing AC_RAID_ALARM_SERVER, config variables start with AC_
+//"tcp.alerts.com.ua" - uses TCP connection and receives alarm updates instantly from server.
+//When choosing AC_RAID_ALARM_SERVER, config variables start with AC_
 //API URL: https://alerts.com.ua
 //+ No need to parse JSON, very fast retrieval and processing speed
 //+ No need to issue periodic requests to retrieve data; almost instant data updates (max delay is 2s)
 //- Does not return Crimea data
 //- Requires API_KEY to function
+//- does not seems to function anymore (as of 2025 onwards)
 const uint8_t AC_RAID_ALARM_SERVER = 3;
 const char* getAcRaidAlarmServerName() { const char* result = "tcp.alerts.com.ua"; return result; };
 const uint16_t getAcRaidAlarmServerPort() { const uint16_t result = 1024; return result; };
@@ -238,7 +243,8 @@ const std::vector<std::vector<const char*>> getAcRegions() {
   return result;
 }
 
-//"alerts.in.ua" - periodically issues get request to server and receives small JSON with full alarm data. When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
+//"alerts.in.ua" - periodically issues get request to server and receives small JSON with full alarm data.
+//When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
 //API: https://api.alerts.in.ua/docs/
 //+ Returns small JSON which is fast to retrieve and process
 //- Slower update period (15-17s minimum)
@@ -1268,7 +1274,7 @@ bool setStripStatus() {
   bool dimLedAtNight = false;
 
   if( isApInitialized ) {
-    ledColor = { 7, 7, 7 };
+    ledColor = { 0, 9, 9 };
     dimLedAtNight = true;
   } else if( statusLedColor == STRIP_STATUS_WIFI_CONNECTING ) {
     ledColor = { 0, 0, 16 };
@@ -1676,18 +1682,29 @@ void vkRetrieveAndProcessServerData() {
           }
 
           //response processing start
-          if( currObjectLevel == 3 && enabledObjectNameFound && ( responseCurrChar == ',' || responseCurrChar == '}' ) ) {
+          if( currObjectLevel == 3 && enabledObjectNameFound && ( responseCurrChar == ',' || responseCurrChar == '}' ) ) { //for states
             enabledObjectNameFound = false;
             currCharComparedIndex = 0;
             if( jsonRegion != "" && ( jsonStatus == jsonStatusTrue || jsonStatus == jsonStatusFalse ) ) {
               regionToAlarmStatus[ jsonRegion ] = jsonStatus == jsonStatusTrue;
-              jsonRegion = "";
+              //jsonRegion = "";
+              jsonStatus = "";
+            }
+          }
+          if( currObjectLevel == 5 && enabledObjectNameFound && ( responseCurrChar == ',' || responseCurrChar == '}' ) ) { //for regions
+            enabledObjectNameFound = false;
+            currCharComparedIndex = 0;
+            if( jsonRegion != "" && ( jsonStatus == jsonStatusTrue || jsonStatus == jsonStatusFalse ) ) {
+              regionToAlarmStatus[ jsonRegion ] = regionToAlarmStatus[ jsonRegion ] || jsonStatus == jsonStatusTrue;
               jsonStatus = "";
             }
           }
 
           if( responseCurrChar == '}' ) {
             currObjectLevel--;
+            if( currObjectLevel == 2 ) {
+              jsonRegion = "";
+            }
             currCharComparedIndex = 0;
             continue;
           }
@@ -1706,7 +1723,24 @@ void vkRetrieveAndProcessServerData() {
               if( !jsonRegionFound ) continue;
               jsonRegion += responseCurrChar;
             }
-            if( currObjectLevel == 3 ) {
+            if( currObjectLevel == 3 ) { //for states
+              if( enabledObjectNameFound ) {
+                if( responseCurrChar == ' ' ) continue;
+                jsonStatus += responseCurrChar;
+              } else {
+                if( enabledObjectName[currCharComparedIndex] == responseCurrChar ) {
+                  if( currCharComparedIndex == enabledObjectNameMaxIndex ) {
+                    currCharComparedIndex = 0;
+                    enabledObjectNameFound = true;
+                  } else {
+                    currCharComparedIndex++;
+                  }
+                } else {
+                  currCharComparedIndex = 0;
+                }
+              }
+            }
+            if( currObjectLevel == 5 ) { //for regions
               if( enabledObjectNameFound ) {
                 if( responseCurrChar == ' ' ) continue;
                 jsonStatus += responseCurrChar;
@@ -2112,7 +2146,7 @@ void uaRetrieveAndProcessServerData() {
               regionIdRootValue = "";
             } else */if( currObjectLevel == 2 ) {
               if( isActiveAlertsObjectKeyFound ) {
-                if( regionIdValue != "" && /*regionIdRootValue == regionIdValue &&*/ regionTypeValue == "State" && alarmTypeValue == "AIR" ) {
+                if( regionIdValue != "" && /*regionIdRootValue == regionIdValue &&*/ ( regionTypeValue == "State" || regionTypeValue == "District" ) && alarmTypeValue == "AIR" ) {
                   regionToAlarmStatus[ regionIdValue ] = true;
                 }
                 regionIdValue = "";
@@ -2791,10 +2825,10 @@ void handleWebServerGet() {
       "<div class=\"fi ex\">") ) + getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
       "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_UA_KEY_NAME, HTML_PAGE_RAID_SERVER_UA_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
     "</div>"
-    "<div class=\"fi fv pl\">"
-      "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
-    "</div>"
+    //"<div class=\"fi fv pl\">"
+    //  "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
+    //  "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
+    //"</div>"
     "<div class=\"fi fv pl\">"
       "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
       "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AI_KEY_NAME, HTML_PAGE_RAID_SERVER_AI_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
