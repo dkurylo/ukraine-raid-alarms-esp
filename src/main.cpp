@@ -12,7 +12,7 @@
 #else //ESP32 or ESP32S2
 #include <WiFi.h>
 #include <WebServer.h>
-#include <HTTPUpdateServer.h>
+#include <HTTPUpdateServerMod_LittleFs.h>
 #include <HTTPClient.h>
 #endif
 
@@ -22,10 +22,37 @@
 #include <Adafruit_NeoPixel.h>
 #include <LittleFS.h>
 
-bool isNewBoard = false;
+uint8_t EEPROM_FLASH_DATA_VERSION = 2; //change to next number when eeprom data format is changed. 255 is a reserved value: is set to 255 when: hard reset pin is at 3.3V (high); during factory reset procedure; when FW is loaded to a new device (EEPROM reads FF => 255)
+uint8_t eepromFlashDataVersion = EEPROM_FLASH_DATA_VERSION;
 const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
 
+#ifdef ESP8266
 #define BRIGHTNESS_INPUT_PIN A0
+#else //ESP32 or ESP32S2
+#define BRIGHTNESS_INPUT_PIN 3
+#endif
+
+//ESP8266 has 10-bit ADC (0-1023)
+//ESP32 has 12-bit ADC (0-4095)
+//ESP32-S2 has 13-bit ADC (0-8191)
+#ifdef ESP8266
+  #define ADC_RESOLUTION 10
+#elif defined(ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+  #define ADC_RESOLUTION 13
+#else
+  #define ADC_RESOLUTION 12 // Default for ESP32, ESP32-C3, C2, C6, H2
+#endif
+#define ADC_NUMBER_OF_VALUES ( 1 << ADC_RESOLUTION )
+#define ADC_STEP_FOR_BYTE ( ADC_NUMBER_OF_VALUES / ( 1 << ( 8 * sizeof( uint8_t ) ) ) )
+
+#ifdef ESP8266
+
+#elif defined(ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+  uint8_t HARD_RESET_PIN = 12; //has to be high on load to perform hard reset
+#else
+
+#endif
+
 
 //wifi access point configuration
 const char* getWiFiAccessPointSsid() { const char* result = "Air Raid Monitor"; return result; };
@@ -34,9 +61,10 @@ const IPAddress getWiFiAccessPointIp() { IPAddress result( 192, 168, 1, 1 ); ret
 const IPAddress getWiFiAccessPointNetMask() { IPAddress result( 255, 255, 255, 0 ); return result; };
 const uint32_t TIMEOUT_AP = 120000;
 
+//device name
+char deviceName[16 + 1];
+
 //wifi client configuration
-const uint8_t WIFI_SSID_MAX_LENGTH = 32;
-const uint8_t WIFI_PASSWORD_MAX_LENGTH = 32;
 const char* getWiFiHostName() { const char* result = "Air-Raid-Monitor"; return result; }
 const uint32_t TIMEOUT_CONNECT_WIFI = 90000;
 
@@ -80,11 +108,20 @@ const uint16_t DELAY_INTERNAL_LED_ANIMATION_HIGH = 200;
 
 //brightness settings
 const uint16_t DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK = 100;
-const uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 10;
-const uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 512;
+#ifdef ESP8266
+uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 8; //ESP8266 has 10-bit ADC (0-1023)
+uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 512; //ESP8266 has 10-bit ADC (0-1023)
+#else //ESP32 or ESP32S2
+uint16_t SENSOR_BRIGHTNESS_NIGHT_LEVEL = 32; //ESP32 has 12-bit ADC (0-4095); ESP32-S2 has 13-bit ADC (0-8191)
+uint16_t SENSOR_BRIGHTNESS_DAY_LEVEL = 4096; //ESP32 has 12-bit ADC (0-4095); ESP32-S2 has 13-bit ADC (0-8191)
+#endif
 
 //beeper settings
+#ifdef ESP8266
 #define BEEPER_PIN 13
+#else //ESP32 or ESP32S2
+#define BEEPER_PIN 11
+#endif
 const bool IS_LOW_LEVEL_BUZZER = true;
 
 //map settings
@@ -148,6 +185,13 @@ const std::vector<std::vector<const char*>> getVkRegions() {
   };
   return result;
 }
+std::vector<const char*> getVrRegionsSplitByRaions() {
+  std::vector<const char*> result = {
+    "Дніпропетровська область",
+    "Черкаська область"
+  };
+  return result;
+}
 
 //"ukrainealarm.com"
 //Periodically issues get request to detect whether there is status update, if there is one, then receives large JSON with active alarms.
@@ -178,13 +222,13 @@ const std::vector<std::vector<const char*>> getUaRegions() {
     { "14", "31" }, //Київська область, м. Київ
     { "25" }, //Чернігівська область
     { "20" }, //Сумська область
-    { "22" }, //Харківська область
+    { "22"/*, "1293", "1313", "1284"*/ }, //Харківська область
     { "16" }, //Луганська область
     { "28" }, //Донецька область
-    { "12" }, //Запорізька область
-    { "9" }, //Дніпропетровська область
+    { "12", "564" }, //Запорізька область
+    { "9", "42", "43", "44", "45", "46", "47", "48"/*, "349", "351", "356"*/ }, //Дніпропетровська область
     { "19" }, //Полтавська область
-    { "152", "153", "150", "151" }, //Черкаська область
+    { "150", "151", "152", "153" }, //Черкаська область
     { "15" }, //Кіровоградська область
     { "17" }, //Миколаївська область
     { "18" }, //Одеська область
@@ -242,6 +286,7 @@ const std::vector<std::vector<const char*>> getAcRegions() {
   };
   return result;
 }
+const char* myStrings[] = {"apple", "banana", "cherry", "date"};
 
 //"alerts.in.ua" - periodically issues get request to server and receives small JSON with full alarm data.
 //When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
@@ -314,10 +359,9 @@ const uint16_t TIMEOUT_TCP_SERVER_DATA = 60000; //if server does not send anythi
 
 
 //variables used in the code, don't change anything here
-char wiFiClientSsid[WIFI_SSID_MAX_LENGTH];
-char wiFiClientPassword[WIFI_PASSWORD_MAX_LENGTH];
-const uint8_t RAID_ALARM_SERVER_API_KEY_LENGTH = 64;
-char raidAlarmServerApiKey[RAID_ALARM_SERVER_API_KEY_LENGTH];
+char wiFiClientSsid[32 + 1];
+char wiFiClientPassword[32 + 1];
+char raidAlarmServerApiKey[64 + 1];
 
 bool showOnlyActiveAlarms = false;
 bool showStripIdleStatusLed = false;
@@ -333,7 +377,7 @@ const int8_t RAID_ALARM_STATUS_UNINITIALIZED = -1;
 const int8_t RAID_ALARM_STATUS_INACTIVE = 0;
 const int8_t RAID_ALARM_STATUS_ACTIVE = 1;
 
-std::vector<uint8_t> raidAlarmStatusColorInactive = { 15, 143, 0 };
+std::vector<uint8_t> raidAlarmStatusColorInactive = { 15, 159, 0 };
 std::vector<uint8_t> raidAlarmStatusColorActive = { 159, 15, 0 };
 std::vector<uint8_t> raidAlarmStatusColorInactiveBlink = { 191, 191, 0 };
 std::vector<uint8_t> raidAlarmStatusColorActiveBlink = { 255, 255, 0 };
@@ -596,10 +640,11 @@ void initVariables() {
 
 
 //eeprom functionality
-const uint16_t eepromIsNewBoardIndex = 0;
-const uint16_t eepromWiFiSsidIndex = eepromIsNewBoardIndex + 1;
-const uint16_t eepromWiFiPasswordIndex = eepromWiFiSsidIndex + WIFI_SSID_MAX_LENGTH;
-const uint16_t eepromRaidAlarmServerIndex = eepromWiFiPasswordIndex + WIFI_PASSWORD_MAX_LENGTH;
+const uint16_t eepromFlashDataVersionIndex = 0;
+const uint16_t eepromWiFiSsidIndex = eepromFlashDataVersionIndex + 1;
+const uint16_t eepromWiFiPasswordIndex = eepromWiFiSsidIndex + sizeof(wiFiClientSsid);
+const uint16_t eepromDeviceNameIndex = eepromWiFiPasswordIndex + sizeof(wiFiClientPassword);
+const uint16_t eepromRaidAlarmServerIndex = eepromDeviceNameIndex + sizeof(deviceName);
 const uint16_t eepromShowOnlyActiveAlarmsIndex = eepromRaidAlarmServerIndex + 1;
 const uint16_t eepromShowStripIdleStatusLedIndex = eepromShowOnlyActiveAlarmsIndex + 1;
 const uint16_t eepromStripLedBrightnessIndex = eepromShowStripIdleStatusLedIndex + 1;
@@ -611,9 +656,9 @@ const uint16_t eepromStripLedBrightnessDimmingNightIndex = eepromAlarmOffOnIndex
 const uint16_t eepromStripPartyModeIndex = eepromStripLedBrightnessDimmingNightIndex + 1;
 const uint16_t eepromIsBeepingEnabledIndex = eepromStripPartyModeIndex + 1;
 const uint16_t eepromUaRaidAlarmApiKeyIndex = eepromIsBeepingEnabledIndex + 1;
-const uint16_t eepromAcRaidAlarmApiKeyIndex = eepromUaRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
-const uint16_t eepromAiRaidAlarmApiKeyIndex = eepromAcRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
-const uint16_t eepromAlertnessHomeRegionIndex = eepromAiRaidAlarmApiKeyIndex + RAID_ALARM_SERVER_API_KEY_LENGTH;
+const uint16_t eepromAcRaidAlarmApiKeyIndex = eepromUaRaidAlarmApiKeyIndex + sizeof(raidAlarmServerApiKey);
+const uint16_t eepromAiRaidAlarmApiKeyIndex = eepromAcRaidAlarmApiKeyIndex + sizeof(raidAlarmServerApiKey);
+const uint16_t eepromAlertnessHomeRegionIndex = eepromAiRaidAlarmApiKeyIndex + sizeof(raidAlarmServerApiKey);
 const uint16_t eepromAlertnessSensitivityLevelIndex = eepromAlertnessHomeRegionIndex + 1;
 const uint16_t eepromLastByteIndex = eepromAlertnessSensitivityLevelIndex + 1;
 
@@ -739,16 +784,16 @@ bool writeEepromColor( const uint16_t& eepromIndex, std::vector<uint8_t> newValu
 
 String readRaidAlarmServerApiKey( int8_t serverName ) { //-1 populates the api key for the current server
   uint8_t serverNameToRead = serverName == -1 ? currentRaidAlarmServer : serverName;
-  char serverApiKey[RAID_ALARM_SERVER_API_KEY_LENGTH];
+  char serverApiKey[sizeof(raidAlarmServerApiKey)];
   switch( serverNameToRead ) {
     case UA_RAID_ALARM_SERVER:
-      readEepromCharArray( eepromUaRaidAlarmApiKeyIndex, serverApiKey, RAID_ALARM_SERVER_API_KEY_LENGTH, true );
+      readEepromCharArray( eepromUaRaidAlarmApiKeyIndex, serverApiKey, sizeof(raidAlarmServerApiKey), true );
       break;
     case AC_RAID_ALARM_SERVER:
-      readEepromCharArray( eepromAcRaidAlarmApiKeyIndex, serverApiKey, RAID_ALARM_SERVER_API_KEY_LENGTH, true );
+      readEepromCharArray( eepromAcRaidAlarmApiKeyIndex, serverApiKey, sizeof(raidAlarmServerApiKey), true );
       break;
     case AI_RAID_ALARM_SERVER:
-      readEepromCharArray( eepromAiRaidAlarmApiKeyIndex, serverApiKey, RAID_ALARM_SERVER_API_KEY_LENGTH, true );
+      readEepromCharArray( eepromAiRaidAlarmApiKeyIndex, serverApiKey, sizeof(raidAlarmServerApiKey), true );
       break;
     default:
       break;
@@ -760,11 +805,15 @@ String readRaidAlarmServerApiKey( int8_t serverName ) { //-1 populates the api k
 }
 
 void loadEepromData() {
-  readEepromBoolValue( eepromIsNewBoardIndex, isNewBoard, true );
-  if( !isNewBoard ) {
+  if( eepromFlashDataVersion != 255 ) {
+    readEepromUintValue( eepromFlashDataVersionIndex, eepromFlashDataVersion, true );
+  }
 
-    readEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH, true );
-    readEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH, true );
+  if( eepromFlashDataVersion != 255 && eepromFlashDataVersion == EEPROM_FLASH_DATA_VERSION ) {
+
+    readEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, sizeof(wiFiClientSsid), true );
+    readEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, sizeof(wiFiClientPassword), true );
+    readEepromCharArray( eepromDeviceNameIndex, deviceName, sizeof(deviceName), true );
     readEepromUintValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer, true );
     readEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarms, true );
     readEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripIdleStatusLed, true );
@@ -781,10 +830,12 @@ void loadEepromData() {
     readEepromIntValue( eepromAlertnessSensitivityLevelIndex, alertnessSensitivityLevel, true );
 
   } else { //fill EEPROM with default values when starting the new board
-    writeEepromBoolValue( eepromIsNewBoardIndex, false );
+    writeEepromUintValue( eepromFlashDataVersionIndex, EEPROM_FLASH_DATA_VERSION );
+    eepromFlashDataVersion = EEPROM_FLASH_DATA_VERSION;
 
-    writeEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH );
-    writeEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH );
+    writeEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, sizeof(wiFiClientSsid) );
+    writeEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, sizeof(wiFiClientPassword) );
+    writeEepromCharArray( eepromDeviceNameIndex, deviceName, sizeof(deviceName) );
     writeEepromUintValue( eepromRaidAlarmServerIndex, currentRaidAlarmServer );
     writeEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarms );
     writeEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripIdleStatusLed );
@@ -796,14 +847,13 @@ void loadEepromData() {
     writeEepromUintValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNight );
     writeEepromBoolValue( eepromStripPartyModeIndex, stripPartyMode );
     writeEepromBoolValue( eepromIsBeepingEnabledIndex, isBeepingEnabled );
-    char raidAlarmServerApiKeyEmpty[RAID_ALARM_SERVER_API_KEY_LENGTH] = "";
-    writeEepromCharArray( eepromUaRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
-    writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
-    writeEepromCharArray( eepromAiRaidAlarmApiKeyIndex, raidAlarmServerApiKeyEmpty, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    writeEepromCharArray( eepromUaRaidAlarmApiKeyIndex, raidAlarmServerApiKey, sizeof(raidAlarmServerApiKey) );
+    writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKey, sizeof(raidAlarmServerApiKey) );
+    writeEepromCharArray( eepromAiRaidAlarmApiKeyIndex, raidAlarmServerApiKey, sizeof(raidAlarmServerApiKey) );
     writeEepromIntValue( eepromAlertnessHomeRegionIndex, alertnessHomeRegionIndex );
     writeEepromIntValue( eepromAlertnessSensitivityLevelIndex, alertnessSensitivityLevel );
 
-    isNewBoard = false;
+    loadEepromData();
   }
 }
 
@@ -818,7 +868,12 @@ void createAccessPoint() {
   apStartedMillis = millis();
   Serial.print( F("Creating WiFi AP...") );
   WiFi.softAPConfig( getWiFiAccessPointIp(), getWiFiAccessPointIp(), getWiFiAccessPointNetMask() );
+  #ifdef ESP8266
   WiFi.softAP( ( String( getWiFiAccessPointSsid() ) + " " + String( ESP.getChipId() ) ).c_str(), getWiFiAccessPointPassword(), 0, false );
+  #else //ESP32 or ESP32S2
+  String macAddress = String( ESP.getEfuseMac() );
+  WiFi.softAP( ( String( getWiFiAccessPointSsid() ) + " " + macAddress.substring( macAddress.length() - 4 ) ).c_str(), getWiFiAccessPointPassword(), 0, false );
+  #endif
   IPAddress accessPointIp = WiFi.softAPIP();
   dnsServer.start( 53, "*", accessPointIp );
   Serial.println( String( F(" done | IP: ") ) + accessPointIp.toString() );
@@ -1400,6 +1455,10 @@ const String getWiFiStatusText( wl_status_t status ) {
       return F("CONNECT_FAILED");
     case WL_CONNECTION_LOST:
       return F("CONNECTION_LOST");
+    #ifdef ESP8266
+    case WL_WRONG_PASSWORD:
+      return F("WRONG_PASSWORD");
+    #endif
     case WL_DISCONNECTED:
       return F("DISCONNECTED");
     default:
@@ -1434,7 +1493,12 @@ bool isRouterSsidProvided() {
 }
 
 String getFullWiFiHostName() {
+  #ifdef ESP8266
   return String( getWiFiHostName() ) + "-" + String( ESP.getChipId() );
+  #else //ESP32 or ESP32S2
+  String macAddress = String( ESP.getEfuseMac() );
+  return String( getWiFiHostName() ) + "-" + macAddress.substring( macAddress.length() - 4 );
+  #endif
 }
 
 void connectToWiFi( bool forceReconnect ) {
@@ -1552,6 +1616,7 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
       );
     }
   }
+
   return isStatusChanged;
 }
 
@@ -1660,6 +1725,8 @@ void vkRetrieveAndProcessServerData() {
       char responseCharBuffer[responseCharBufferLength];
       char responseCurrChar;
 
+      std::vector<const char*> regionsSplitByRaions = getVrRegionsSplitByRaions();
+
       WiFiClient *stream = httpClient.getStreamPtr();
       while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( calculateDiffMillis( httpRequestIssuedMillis, millis() ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
         uint32_t numBytesAvailable = stream->available();
@@ -1695,7 +1762,16 @@ void vkRetrieveAndProcessServerData() {
             enabledObjectNameFound = false;
             currCharComparedIndex = 0;
             if( jsonRegion != "" && ( jsonStatus == jsonStatusTrue || jsonStatus == jsonStatusFalse ) ) {
-              regionToAlarmStatus[ jsonRegion ] = regionToAlarmStatus[ jsonRegion ] || jsonStatus == jsonStatusTrue;
+              bool isRegionSplitByRaion = false;
+              for( const char* regionSplitByRaions : regionsSplitByRaions ) {
+                if( jsonRegion == regionSplitByRaions ) {
+                  isRegionSplitByRaion = true;
+                  break;
+                }
+              }
+              if( isRegionSplitByRaion ) {
+                regionToAlarmStatus[ jsonRegion ] = regionToAlarmStatus[ jsonRegion ] || jsonStatus == jsonStatusTrue;
+              }
               jsonStatus = "";
             }
           }
@@ -1809,7 +1885,8 @@ void vkRetrieveAndProcessServerData() {
 }
 
 //functions for UA server
-bool uaRetrieveAndProcessStatusChangedData( WiFiClientSecure wiFiClient ) {
+bool uaRetrieveAndProcessStatusChangedData() {
+  WiFiClientSecure wiFiClient;
   wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
   wiFiClient.setInsecure();
 
@@ -1991,6 +2068,7 @@ void uaProcessServerData( std::map<String, bool>& regionToAlarmStatus ) { //proc
     const std::vector<const char*>& regionNames = allRegions[ledIndex];
     for( const char* regionName : regionNames ) {
       bool isRegionFound = false;
+
       for( const auto& receivedRegionItem : regionToAlarmStatus ) {
         const char* receivedRegionName = receivedRegionItem.first.c_str();
         if( strcmp( regionName, receivedRegionName ) == 0 ) {
@@ -2000,6 +2078,7 @@ void uaProcessServerData( std::map<String, bool>& regionToAlarmStatus ) { //proc
           break;
         }
       }
+
       if( !isRegionFound ) { //API sends only active alarms, so if region was not found, then alarm status is inactive
         bool isAlarmEnabled = false;
         processRaidAlarmStatus( ledIndex, regionName, isAlarmEnabled );
@@ -2011,15 +2090,8 @@ void uaProcessServerData( std::map<String, bool>& regionToAlarmStatus ) { //proc
   }
 }
 
-void uaRetrieveAndProcessServerData() {
+bool uaRetrieveAndProcessRegionData() {
   WiFiClientSecure wiFiClient;
-
-  if( uaLastActionHash != 0 ) { //at the beginning, we can skip checking for the last update hash code, as we don't have any data at all
-    if( !uaRetrieveAndProcessStatusChangedData( wiFiClient ) ) {
-      return;
-    }
-  }
-
   wiFiClient.setTimeout( TIMEOUT_TCP_CONNECTION_SHORT );
   wiFiClient.setInsecure();
 
@@ -2333,8 +2405,22 @@ void uaRetrieveAndProcessServerData() {
     uaProcessServerData( regionToAlarmStatus );
   }
 
+  return isSuccess;
+}
+
+void uaRetrieveAndProcessServerData() {
+  if( uaLastActionHash != 0 ) { //at the beginning, we can skip checking for the last update hash code, as we don't have any data at all
+    if( !uaRetrieveAndProcessStatusChangedData() ) {
+      return;
+    } else {
+      yield();
+    }
+  }
+
+  bool isSuccess = uaRetrieveAndProcessRegionData();
   if( isSuccess && uaLastActionHash == 0 ) { //at the beginning, we should retrieve the last update hash code for future checks, even after we receive the data
-    uaRetrieveAndProcessStatusChangedData( wiFiClient );
+    yield();
+    uaRetrieveAndProcessStatusChangedData();
   }
 }
 
@@ -2618,24 +2704,31 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
 "<html>"
   "<head>"
     "<meta charset=\"UTF-8\">"
-    "<title>Мапа повітряних тривог</title>"
+    "<title>Мапа тривог</title>"
     "<style>"
-      ":root{--f:22px;}"
-      "body{margin:0;background-color:#444;font-family:sans-serif;color:#FFF;}"
+      ":root{--f:20px;}"
+      "body{margin:0;background-color:#333;font-family:sans-serif;color:#FFF;}"
       "body,input,button,select{font-size:var(--f);}"
       ".wrp{width:60%;min-width:460px;max-width:600px;margin:auto;margin-bottom:10px;}"
-      "h2{color:#FFF;font-size:calc(var(--f)*1.2);text-align:center;margin-top:0.3em;margin-bottom:0.1em;}"
+      "h2{text-align:center;margin-top:0.3em;margin-bottom:1em;}"
+      "h2,.fxh{color:#FFF;font-size:calc(var(--f)*1.2);}"
       ".fx{display:flex;flex-wrap:wrap;margin:auto;}"
-      ".fx:not(:first-of-type){margin-top:0.3em;}"
+      ".fx.fxsect{border:1px solid #555;background-color:#444;margin-top:10px;border-radius:8px;box-shadow: 4px 4px 5px #222;overflow:hidden;}"
+      ".fxsect+.fxsect{/*border-top:none;*/}"
+      ".fxh,.fxc{width:100%;}"
+      ".fxh{padding:0.2em 0.5em;font-weight:bold;background-color:#606060;background:linear-gradient(#666,#555);border-bottom:0px solid #555;}"
+      ".fxc{padding:0.5em 0.5em;}"
       ".fx .fi{display:flex;align-items:center;margin-top:0.3em;width:100%;}"
       ".fx .fi:first-of-type,.fx.fv .fi{margin-top:0;}"
       ".fv{flex-direction:column;align-items:flex-start;}"
-      ".ex.ext:before{color:#888;cursor:pointer;content:\"▶\";}"
-      ".ex.exon .ex.ext:before{content:\"▼\";}"
+      ".ex.ext.exton{color:#AAA;cursor:pointer;}"
+      ".ex.ext.extoff{color:#666;cursor:default;}"
+      ".ex.ext:after{display:inline-block;content:\"▶\";}"
+      ".ex.exon .ex.ext:after{transform:rotate(90deg);}"
       ".ex.exc{height:0;margin-top:0;}.ex.exc>*{visibility:hidden;}"
       ".ex.exc.exon{height:inherit;}.ex.exc.exon>*{visibility:initial;}"
       "label{flex:none;padding-right:0.6em;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
-      "input,select{width:100%;padding:0.1em 0.2em;}"
+      "input:not(.fixed),select:not(.fixed){width:100%;padding:0.1em 0.2em;}"
       "select.mid{text-align:center;}"
       "input[type=\"radio\"],input[type=\"checkbox\"]{flex:none;margin:0.1em 0;width:calc(var(--f)*1.2);height:calc(var(--f)*1.2);}"
       "input[type=\"radio\"]+label,input[type=\"checkbox\"]+label{padding-left:0.6em;padding-right:initial;flex:1 1 auto;max-width:initial;}"
@@ -2645,20 +2738,20 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       "input[type=\"color\"]{padding:0;height:var(--f);border-radius:0;}"
       "input[type=\"color\"]::-webkit-color-swatch-wrapper{padding:2px;}"
       "output{padding-left:0.6em;}"
-      "button{width:100%;padding:0.2em;}"
+      "button:not(.fixed){width:100%;padding:0.2em;}"
       "a{color:#AAA;}"
       ".sub+.sub{padding-left:0.6em;}"
       ".ft{margin-top:1em;}"
       ".pl{padding-left:0.6em;}"
       ".pll{padding-left:calc(var(--f)*1.2 + 0.6em);}"
-      ".lnk{margin:auto;color:#AAA;;display:inline-block;}"
+      ".lnk{margin:auto;color:#AAA;display:inline-block;}"
       ".i{color:#CCC;margin-left:0.2em;border:1px solid #777;border-radius:50%;background-color:#666;cursor:default;font-size:65%;vertical-align:top;width:1em;height:1em;display:inline-block;text-align:center;}"
       ".i:before{content:\"i\";position:relative;top:-0.07em;}"
       ".i:hover{background-color:#777;color:#DDD;}"
-      ".stat{font-size:65%;color:#888;border:1px solid #777;border-radius:4px;overflow:hidden;}"
+      ".stat{font-size:65%;color:#888;border:1px solid #777;border-radius:6px;overflow:hidden;}"
       ".stat>span{padding:1px 4px;display:inline-block;}"
       ".stat>span:not(:last-of-type){border-right:1px solid #777;}"
-      ".stat>span.lbl,.stat>span.btn{color:#888;background-color:#555;}"
+      ".stat>span.lbl,.stat>span.btn{color:#888;background-color:#444;}"
       ".stat>span.btn{cursor:default;}"
       ".stat>span.btn:hover{background-color:#505050;}"
       ".stat>span.btn.on{color:#48B;background-color:#246;}"
@@ -2667,12 +2760,15 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
         ":root{--f:4vw;}"
         ".wrp{width:94%;max-width:100%;}"
       "}"
+      "@media(orientation:landscape){"
+        ":root{--f:22px;}"
+      "}"
     "</style>"
   "</head>"
   "<body>"
     "<div class=\"wrp\">"
       "<h2>"
-        "МАПА ПОВІТРЯНИХ ТРИВОГ"
+        "<span id=\"title\">МАПА ТРИВОГ</span>"
         "<div style=\"line-height:0.5;\">"
           "<div class=\"lnk\" style=\"font-size:50%;\">Розробник: <a href=\"mailto:kurylo.press@gmail.com?subject=Мапа повітряних тривог\">Дмитро Курило</a></div> "
           "<div class=\"lnk\" style=\"font-size:50%;\"><a href=\"https://github.com/dkurylo/ukraine-raid-alarms-esp\" target=\"_blank\">GitHub</a></div>"
@@ -2728,10 +2824,6 @@ String getHtmlInput( String label, const char* type, const char* value, const ch
       ( (strcmp(type, HTML_INPUT_TEXT) != 0 && strcmp(type, HTML_INPUT_PASSWORD) != 0 && strcmp(type, HTML_INPUT_COLOR) != 0 && strcmp(type, HTML_INPUT_RANGE) != 0) ? getHtmlLabel( label, elId, false ) : "" );
 }
 
-const uint8_t getWiFiClientSsidNameMaxLength() { return WIFI_SSID_MAX_LENGTH - 1;}
-const uint8_t getWiFiClientSsidPasswordMaxLength() { return WIFI_PASSWORD_MAX_LENGTH - 1;}
-const uint8_t getRaidAlarmServerApiKeyMaxLength() { return RAID_ALARM_SERVER_API_KEY_LENGTH - 1;}
-
 const char* HTML_PAGE_WIFI_SSID_NAME = "ssid";
 const char* HTML_PAGE_WIFI_PWD_NAME = "pwd";
 const char* HTML_PAGE_RAID_SERVER_NAME = "srv";
@@ -2742,194 +2834,264 @@ const char* HTML_PAGE_RAID_SERVER_AC_NAME = "srvac";
 const char* HTML_PAGE_RAID_SERVER_AC_KEY_NAME = "srvackey";
 const char* HTML_PAGE_RAID_SERVER_AI_NAME = "srvai";
 const char* HTML_PAGE_RAID_SERVER_AI_KEY_NAME = "srvaikey";
-const char* HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME = "raidled";
-const char* HTML_PAGE_SHOW_STRIP_STATUS_NAME = "statled";
 const char* HTML_PAGE_BRIGHTNESS_NAME = "brt";
+const char* HTML_PAGE_BRIGHTNESS_NIGHT_NAME = "brtn";
 const char* HTML_PAGE_ALARM_ON_NAME = "clron";
 const char* HTML_PAGE_ALARM_OFF_NAME = "clroff";
 const char* HTML_PAGE_ALARM_ONOFF_NAME = "clronoff";
 const char* HTML_PAGE_ALARM_OFFON_NAME = "clroffon";
-const char* HTML_PAGE_BRIGHTNESS_NIGHT_NAME = "brtn";
-const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
+const char* HTML_PAGE_DEVICE_NAME_NAME = "dvn";
 const char* HTML_PAGE_HOME_REGION_NAME = "hmr";
+const char* HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME = "raidled";
 const char* HTML_PAGE_IS_BEEPING_ENABLED_NAME = "bpe";
 const char* HTML_PAGE_SENSITIVITY_LEVEL_NAME = "bps";
+const char* HTML_PAGE_SHOW_STRIP_STATUS_NAME = "statled";
+const char* HTML_PAGE_STRIP_PARTY_MODE_NAME = "party";
 
 void handleWebServerGet() {
+  wifiWebServer.setContentLength( CONTENT_LENGTH_UNKNOWN );
+  wifiWebServer.send( 200, getContentType( F("html") ), "" );
+
   String content;
-  content.reserve( 12500 ); //currently it's around 10600
+  content.reserve( 5000 ); //currently 4000 max (when sending second part of HTML)
+
+  //3800
   addHtmlPageStart( content );
-  content += ( isApInitialized ? "" : ( String( F("<script>"
-    "document.addEventListener(\"DOMContentLoaded\",()=>{"
+  wifiWebServer.sendContent( content );
+  content = "";
+
+  //3700
+  content += String( F(""
+"<script>"
+  "let devnm=\"" ) ) + String( deviceName ) + String( F("\";"
+  "let ap=" ) ) + String( isApInitialized ) + String( F(";"
+  "document.addEventListener(\"DOMContentLoaded\",()=>{"
+    "if(ap){"
+      "setInterval(()=>{"
+        "fetch(\"/ping\").catch(e=>{});"
+      "},30000);"
+    "}else{"
+      "document.getElementById('mapwrp').style.display='';"
       "fetch(\"/map?id=map\").then(resp=>resp.text()).then(data=>{"
         "let scriptEl=document.createElement('script');"
         "scriptEl.textContent=data;"
         "document.querySelector('#map').appendChild(scriptEl);"
       "}).catch(e=>{});"
-      "pg();"
-      "mnf(true);"
+    "}"
+    "if(devnm!=''){"
+      "document.title+=' - '+devnm;"
+      "document.getElementById('title').textContent+=' - '+devnm;"
+    "}"
+    "mnf(true);"
+  "});"
+  "function ex(el){"
+    "Array.from(el.parentElement.parentElement.children).forEach(ch=>{"
+      "if(ch.classList.contains(\"ex\"))ch.classList.toggle(\"exon\");"
     "});"
-  "</script>"
-  "<div id=\"map\"></div>") ) ) ) +
-  String( F("<script>"
-    "function pg(){"
-      "let ap=") ) + String( isApInitialized ) + String( F(";"
-      "if(!ap)return;"
-      "setInterval(()=>{"
-        "fetch(\"/ping\").catch(e=>{});"
-      "},30000);"
+  "}"
+  "function op(id,val){"
+    "let sl=document.getElementById(id);"
+    "for(let i=0;i<sl.options.length;i++){"
+      "if(sl.options[i].value!=val)continue;"
+      "sl.selectedIndex=i;"
+      "break;"
     "}"
-    "function ex(el){"
-      "Array.from(el.parentElement.parentElement.children).forEach(ch=>{"
-        "if(ch.classList.contains(\"ex\"))ch.classList.toggle(\"exon\");"
-      "});"
+  "}"
+  "let isMnt=false;"
+  "function mnt(){"
+    "isMnt=!isMnt;"
+    "mnf();"
+  "}"
+  "let monAbortCont=null;"
+  "function mnf(isOnce){"
+    "if(monAbortCont){"
+      "monAbortCont.abort();"
     "}"
-    "function op(id,val){"
-      "let sl=document.getElementById(id);"
-      "for(let i=0;i<sl.options.length;i++){"
-        "if(sl.options[i].value!=val)continue;"
-        "sl.selectedIndex=i;"
-        "break;"
+    "if(!isOnce&&!isMnt)return;"
+    "monAbortCont=new AbortController();"
+    "const signal=monAbortCont.signal;"
+    "const timeoutId=setTimeout(()=>{"
+      "monAbortCont.abort();"
+    "},4000);"
+    "fetch(\"/monitor\",{signal})"
+    ".then(resp=>resp.json())"
+    ".then(data=>{"
+      "clearTimeout(timeoutId);"
+      "for(const[key,value]of Object.entries(data.brt)){"
+        "document.getElementById(\"b_\"+key).innerText=value;"
       "}"
-    "}"
-    "let isMnt=false;"
-    "function mnt(){"
-      "isMnt=!isMnt;"
+    "})"
+    ".catch(e=>{"
+      "clearTimeout(timeoutId);"
+      "if(e.name==='AbortError'){"
+      "}else{"
+      "}"
+    "})"
+    ".finally(()=>{"
+      "monAbortCont=null;"
+    "});"
+    "if(isOnce)return;"
+    "setTimeout(()=>{"
       "mnf();"
-    "}"
-    "function mnf(isOnce){"
-      "if(!isOnce&&!isMnt)return;"
-      "fetch(\"/monitor\").then(resp=>resp.json()).then(data=>{"
-        "for(const[key,value]of Object.entries(data.brt)){"
-          "document.getElementById(\"b_\"+key).innerText=value;"
-        "}"
-      "}).catch(e=>{});"
-      "if(isOnce)return;"
-      "setTimeout(()=>{"
-        "mnf();"
-      "},5000);"
-    "}"
-  "</script>"
-  "<form method=\"POST\">"
-  "<div class=\"fx\">"
-    "<h2>Приєднатись до WiFi:</h2>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("SSID назва"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, getWiFiClientSsidNameMaxLength(), true, false ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("SSID пароль"), HTML_INPUT_PASSWORD, wiFiClientPassword, HTML_PAGE_WIFI_PWD_NAME, HTML_PAGE_WIFI_PWD_NAME, 0, getWiFiClientSsidPasswordMaxLength(), true, false ) + String( F("</div>"
-  "</div>"
-  "<div class=\"fx\">"
-    "<h2>Джерело даних:</h2>"
-    "<div class=\"fi fv pl\">"
-      "<div class=\"fi ex\">") ) + getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) + String( F("</div>"
+    "},5000);"
+  "}"
+"</script>"
+"<form method=\"POST\">"
+  "<div id=\"mapwrp\" class=\"fx fxsect\" style=\"display:none;\">"
+    "<div class=\"fxh\">"
+      "Мапа"
     "</div>"
-    "<div class=\"fi fv pl\">"
-      "<div class=\"fi ex\">") ) + getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_UA_KEY_NAME, HTML_PAGE_RAID_SERVER_UA_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
-    "</div>"
-    //"<div class=\"fi fv pl\">"
-    //  "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-    //  "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
-    //"</div>"
-    "<div class=\"fi fv pl\">"
-      "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext pl\" onclick=\"ex(this);\"></div></div>"
-      "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AI_KEY_NAME, HTML_PAGE_RAID_SERVER_AI_KEY_NAME, 0, getRaidAlarmServerApiKeyMaxLength(), false, false ) + String( F("</div></div>"
+    "<div class=\"fxc\">"
+      "<div id=\"map\"></div>"
     "</div>"
   "</div>"
-  "<div class=\"fx\">"
-    "<h2>Яскравість:</h2>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("День"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Ніч<span class=\"i\" title=\"Максимум яскравості вночі дорівнює яскравості вдень\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) + String( F("</div>"
-  "</div>"
-  "<div class=\"fx\">"
-    "<h2>Кольори:</h2>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Немає тривоги"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Є тривога"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Є &rarr; немає"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Немає &rarr; є"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) + String( F("</div>"
-  "</div>"
-  "<div class=\"fx\">"
-    "<h2>Інші налаштування:</h2>"
-    "<div class=\"fi pl\">"
-      "<label for=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\">Моя область:</label>"
-      "<select id=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\" name=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\">"
-        "<option value=\"-1\">-- Відсутня --</option>"
-        "<option value=\"10\">Київ та Київська</option>"
-        "<option value=\"23\">АР Крим та Севастополь</option>"
-        "<option value=\"8\">Вінницька</option>"
-        "<option value=\"2\">Волинська</option>"
-        "<option value=\"17\">Дніпропетровська</option>"
-        "<option value=\"15\">Донецька</option>"
-        "<option value=\"9\">Житомирська</option>"
-        "<option value=\"0\">Закарпатська</option>"
-        "<option value=\"16\">Запорізька</option>"
-        "<option value=\"6\">Івано-Франківська</option>"
-        "<option value=\"20\">Кіровоградська</option>"
-        "<option value=\"1\">Львівська</option>"
-        "<option value=\"14\">Луганська</option>"
-        "<option value=\"21\">Миколаївська</option>"
-        "<option value=\"22\">Одеська</option>"
-        "<option value=\"18\">Полтавська</option>"
-        "<option value=\"3\">Рівненська</option>"
-        "<option value=\"12\">Сумська</option>"
-        "<option value=\"5\">Тернопільська</option>"
-        "<option value=\"13\">Харківська</option>"
-        "<option value=\"24\">Херсонська</option>"
-        "<option value=\"4\">Хмельницька</option>"
-        "<option value=\"19\">Черкаська</option>"
-        "<option value=\"7\">Чернівецька</option>"
-        "<option value=\"11\">Чернігівська</option>"
-      "</select>"
-      "<script>op('") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("','") ) + String( alertnessHomeRegionIndex ) + String( F("');</script>"
+  "<div class=\"fx fxsect\">"
+    "<div class=\"fxh\">"
+      "Приєднатись до WiFi"
     "</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Озвучувати тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_IS_BEEPING_ENABLED_NAME, HTML_PAGE_IS_BEEPING_ENABLED_NAME, 0, 0, false, isBeepingEnabled ) + String( F("</div>"
-    "<div class=\"fi pl\">"
-      "<label for=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\">Чутливість озвучуваня:</label>"
-      "<select id=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\" name=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\">"
-        "<option value=\"0\">Моя область (0)</option>"
-        "<option value=\"1\">Моя та сусідня область (1)</option>"
-        "<option value=\"2\">Моя та сусід сусідньої області (2)</option>"
-        "<option value=\"3\">Моя та та сусід сусіда сусідньої області (3)</option>"
-      "</select>"
-      "<script>op('") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("','") ) + String( alertnessSensitivityLevel ) + String( F("');</script>"
+    "<div class=\"fxc\">"
+      "<div class=\"fi\">") ) + getHtmlInput( F("SSID назва"), HTML_INPUT_TEXT, wiFiClientSsid, HTML_PAGE_WIFI_SSID_NAME, HTML_PAGE_WIFI_SSID_NAME, 0, sizeof(wiFiClientSsid) - 1, true, false ) + String( F("</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("SSID пароль"), HTML_INPUT_PASSWORD, wiFiClientPassword, HTML_PAGE_WIFI_PWD_NAME, HTML_PAGE_WIFI_PWD_NAME, 0, sizeof(wiFiClientPassword) - 1, true, false ) + String( F("</div>"
     "</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Показувати лише тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Підсвічувати статусний діод"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + String( F("</div>"
-    "<div class=\"fi pl\">") ) + getHtmlInput( F("Режим вечірки (зміна кольору)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + String( F("</div>"
   "</div>"
-  "<div class=\"fx ft\">"
-    "<div class=\"fi\"><button type=\"submit\">Застосувати</button></div>"
+  "<div class=\"fx fxsect\">"
+    "<div class=\"fxh\">"
+      "Джерело даних"
+    "</div>"
+    "<div class=\"fxc\">"
+      "<div class=\"fi fv\">"
+        "<div class=\"fi ex\">") ) + getHtmlInput( F("vadimklimenko.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_VK_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == VK_RAID_ALARM_SERVER ) + String( F("<a class=\"pl\" href=\"https://vadimklimenko.com/map\" target=\"blank\">Сайт</a><div class=\"ex ext extoff pl\">Ключ </div></div>"
+      "</div>"
+      "<div class=\"fi fv\">"
+        "<div class=\"fi ex\">") ) + getHtmlInput( F("ukrainealarm.com"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_UA_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) + String( F("<a class=\"pl\" href=\"https://map.ukrainealarm.com\" target=\"blank\">Сайт</a><div class=\"ex ext exton pl\" onclick=\"ex(this);\">Ключ </div></div>"
+        "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_UA_KEY_NAME, HTML_PAGE_RAID_SERVER_UA_KEY_NAME, 0, sizeof(raidAlarmServerApiKey) - 1, false, false ) + String( F("</div></div>"
+      "</div>"
+      //"<div class=\"fi fv\">"
+      //  "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.com.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_AC_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AC_RAID_ALARM_SERVER ) + String( F("<div class=\"ex ext exton pl\" onclick=\"ex(this);\">ключ </div></div>"
+      //  "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AC_KEY_NAME, HTML_PAGE_RAID_SERVER_AC_KEY_NAME, 0, sizeof(raidAlarmServerApiKey) - 1, false, false ) + String( F("</div></div>"
+      //"</div>"
+      "<div class=\"fi fv\">"
+        "<div class=\"fi ex\">") ) + getHtmlInput( F("alerts.in.ua"), HTML_INPUT_RADIO, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_AI_NAME, HTML_PAGE_RAID_SERVER_NAME, 0, 0, false, currentRaidAlarmServer == AI_RAID_ALARM_SERVER ) + String( F("<a class=\"pl\" href=\"https://alerts.in.ua/\" target=\"blank\">Сайт</a><div class=\"ex ext exton pl\" onclick=\"ex(this);\">Ключ </div></div>"
+        "<div class=\"fi ex exc\"><div class=\"fi pll\">") ) + getHtmlInput( F("Ключ"), HTML_INPUT_TEXT, readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ).c_str(), HTML_PAGE_RAID_SERVER_AI_KEY_NAME, HTML_PAGE_RAID_SERVER_AI_KEY_NAME, 0, sizeof(raidAlarmServerApiKey) - 1, false, false ) + String( F("</div></div>"
+      "</div>"
+    "</div>"
+  "</div>"
+  "<div class=\"fx fxsect\">"
+    "<div class=\"fxh\">"
+      "Яскравість"
+    "</div>"
+    "<div class=\"fxc\">"
+      "<div class=\"fi\">") ) + getHtmlInput( F("День"), HTML_INPUT_RANGE, String(stripLedBrightness).c_str(), HTML_PAGE_BRIGHTNESS_NAME, HTML_PAGE_BRIGHTNESS_NAME, 2, 255, false, false ) + String( F("</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Ніч<span class=\"i\" title=\"Максимум яскравості вночі дорівнює яскравості вдень\"></span>"), HTML_INPUT_RANGE, String(stripLedBrightnessDimmingNight).c_str(), HTML_PAGE_BRIGHTNESS_NIGHT_NAME, HTML_PAGE_BRIGHTNESS_NIGHT_NAME, 2, 255, false, false ) + String( F("</div>"
+    "</div>"
+  "</div>" ) );
+  wifiWebServer.sendContent( content );
+  content = "";
+
+  //4000
+  content += String( F(""
+  "<div class=\"fx fxsect\">"
+    "<div class=\"fxh\">"
+      "Кольори"
+    "</div>"
+    "<div class=\"fxc\">"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Немає тривоги"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactive ).c_str(), HTML_PAGE_ALARM_OFF_NAME, HTML_PAGE_ALARM_OFF_NAME, 0, 0, false, false ) + String( F("</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Є тривога"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActive ).c_str(), HTML_PAGE_ALARM_ON_NAME, HTML_PAGE_ALARM_ON_NAME, 0, 0, false, false ) + String( F("</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Є &rarr; немає"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorInactiveBlink ).c_str(), HTML_PAGE_ALARM_ONOFF_NAME, HTML_PAGE_ALARM_ONOFF_NAME, 0, 0, false, false ) + String( F("</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Немає &rarr; є"), HTML_INPUT_COLOR, getHexColor( raidAlarmStatusColorActiveBlink ).c_str(), HTML_PAGE_ALARM_OFFON_NAME, HTML_PAGE_ALARM_OFFON_NAME, 0, 0, false, false ) + String( F("</div>"
+    "</div>"
+  "</div>"
+  "<div class=\"fx fxsect\">"
+    "<div class=\"fxh\">"
+      "Інші налаштування"
+    "</div>"
+    "<div class=\"fxc\">"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Назва пристрою"), HTML_INPUT_TEXT, deviceName, HTML_PAGE_DEVICE_NAME_NAME, HTML_PAGE_DEVICE_NAME_NAME, 0, sizeof(deviceName) - 1, false, false ) + String( F("</div>"
+      "<div class=\"fi\">"
+        "<label for=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\">Моя область:</label>"
+        "<select id=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\" name=\"") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("\">"
+          "<option value=\"-1\">-- Відсутня --</option>"
+          "<option value=\"10\">Київ та Київська</option>"
+          "<option value=\"23\">АР Крим та Севастополь</option>"
+          "<option value=\"8\">Вінницька</option>"
+          "<option value=\"2\">Волинська</option>"
+          "<option value=\"17\">Дніпропетровська</option>"
+          "<option value=\"15\">Донецька</option>"
+          "<option value=\"9\">Житомирська</option>"
+          "<option value=\"0\">Закарпатська</option>"
+          "<option value=\"16\">Запорізька</option>"
+          "<option value=\"6\">Івано-Франківська</option>"
+          "<option value=\"20\">Кіровоградська</option>"
+          "<option value=\"1\">Львівська</option>"
+          "<option value=\"14\">Луганська</option>"
+          "<option value=\"21\">Миколаївська</option>"
+          "<option value=\"22\">Одеська</option>"
+          "<option value=\"18\">Полтавська</option>"
+          "<option value=\"3\">Рівненська</option>"
+          "<option value=\"12\">Сумська</option>"
+          "<option value=\"5\">Тернопільська</option>"
+          "<option value=\"13\">Харківська</option>"
+          "<option value=\"24\">Херсонська</option>"
+          "<option value=\"4\">Хмельницька</option>"
+          "<option value=\"19\">Черкаська</option>"
+          "<option value=\"7\">Чернівецька</option>"
+          "<option value=\"11\">Чернігівська</option>"
+        "</select>"
+        "<script>op('") ) + String( HTML_PAGE_HOME_REGION_NAME ) + String( F("','") ) + String( alertnessHomeRegionIndex ) + String( F("');</script>"
+      "</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Озвучувати тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_IS_BEEPING_ENABLED_NAME, HTML_PAGE_IS_BEEPING_ENABLED_NAME, 0, 0, false, isBeepingEnabled ) + String( F("</div>"
+      "<div class=\"fi\">"
+        "<label for=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\">Чутливість озвучуваня:</label>"
+        "<select id=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\" name=\"") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("\">"
+          "<option value=\"0\">Моя область (0)</option>"
+          "<option value=\"1\">Моя та сусідня область (1)</option>"
+          "<option value=\"2\">Моя та сусід сусідньої області (2)</option>"
+          "<option value=\"3\">Моя та та сусід сусіда сусідньої області (3)</option>"
+        "</select>"
+        "<script>op('") ) + String( HTML_PAGE_SENSITIVITY_LEVEL_NAME ) + String( F("','") ) + String( alertnessSensitivityLevel ) + String( F("');</script>"
+      "</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Показувати лише тривоги"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME, 0, 0, false, showOnlyActiveAlarms ) + String( F("</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Підсвічувати статусний діод"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_SHOW_STRIP_STATUS_NAME, HTML_PAGE_SHOW_STRIP_STATUS_NAME, 0, 0, false, showStripIdleStatusLed ) + String( F("</div>"
+      "<div class=\"fi\">") ) + getHtmlInput( F("Режим вечірки (зміна кольору)"), HTML_INPUT_CHECKBOX, "", HTML_PAGE_STRIP_PARTY_MODE_NAME, HTML_PAGE_STRIP_PARTY_MODE_NAME, 0, 0, false, stripPartyMode ) + String( F("</div>"
+    "</div>"
+  "</div>"
+  "<div class=\"fx fxsect\">"
+    "<div class=\"fxh\">"
+      "Дії"
+    "</div>"
+    "<div class=\"fxc\">"
+      "<div class=\"fi\">"
+        "<button type=\"submit\">Застосувати</button>"
+      "</div>"
+      "<div class=\"ft\">"
+        "<div class=\"fx\">"
+          "<span class=\"sub\"><a href=\"/testdim\">Перевірити нічний режим</a><span class=\"i\" title=\"Застосуйте налаштування перед перевіркою!\"></span></span>"
+          "<span class=\"sub\"><a href=\"/testled\">Перевірити діоди</a></span>"
+        "</div>"
+        "<div class=\"fx\">"
+          "<span class=\"sub\"><a href=\"/update\">Оновити</a><span class=\"i\" title=\"Оновити прошивку. Поточна версія: ") ) + getFirmwareVersion() + String( F("\"></span></span>"
+          "<span class=\"sub\"><a href=\"/reset\">Відновити</a><span class=\"i\" title=\"Відновити до заводських налаштувань\"></span></span>"
+          "<span class=\"sub\"><a href=\"/reboot\">Перезавантажити</a></span>"
+        "</div>"
+      "</div>"
+    "</div>"
   "</div>"
 "</form>"
-"<div class=\"ft\">"
-  "<div class=\"fx\">"
-    "<span>"
-      "<span class=\"sub\"><a href=\"/testdim\">Перевірити нічний режим</a><span class=\"i\" title=\"Застосуйте налаштування перед перевіркою!\"></span></span>"
-      "<span class=\"sub\"><a href=\"/testled\">Перевірити діоди</a></span>"
-    "</span>"
-  "</div>"
-  "<div class=\"fx\">"
-    "<span>"
-      "<span class=\"sub\"><a href=\"/update\">Оновити</a><span class=\"i\" title=\"Оновити прошивку. Поточна версія: ") ) + getFirmwareVersion() + String( F("\"></span></span>"
-      "<span class=\"sub\"><a href=\"/reset\">Відновити</a><span class=\"i\" title=\"Відновити до заводських налаштувань\"></span></span>"
-      "<span class=\"sub\"><a href=\"/reboot\">Перезавантажити</a></span>"
-    "</span>"
-  "</div>"
-  "<div class=\"fx\" style=\"padding-top:0.3em;\">"
-    "<span>"
-      "<div class=\"stat\">"
-        "<span class=\"btn\" onclick=\"this.classList.toggle('on');mnt();\">Яскравість</span>"
-        "<span>CUR <span id=\"b_cur\"></span></span>"
-        "<span>AVG <span id=\"b_avg\"></span></span>"
-        "<span>REQ <span id=\"b_req\"></span></span>"
-        "<span>ON <span id=\"b_on\"></span></span>"
-        "<span>OFF <span id=\"b_off\"></span></span>"
-      "</div>"
-    "</span>"
-  "</div>"
+"<div class=\"fx ft\">"
+  "<span>"
+    "<div class=\"stat\">"
+      "<span class=\"btn\" onclick=\"this.classList.toggle('on');mnt();\">Яскравість</span>"
+      "<span>CUR <span id=\"b_cur\"></span></span>"
+      "<span>AVG <span id=\"b_avg\"></span></span>"
+      "<span>REQ <span id=\"b_req\"></span></span>"
+      "<span>ON <span id=\"b_on\"></span></span>"
+      "<span>OFF <span id=\"b_off\"></span></span>"
+    "</div>"
+  "</span>"
 "</div>") );
   addHtmlPageEnd( content );
-
-  wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
-  wifiWebServer.send( 200, getContentType( F("html") ), content );
+  wifiWebServer.sendContent( content );
+  content = "";
 
   if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
     apStartedMillis = millis();
@@ -2994,17 +3156,17 @@ void handleWebServerPost() {
     wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
-  if( htmlPageSsidNameReceived.length() > getWiFiClientSsidNameMaxLength() ) {
+  if( htmlPageSsidNameReceived.length() > sizeof(wiFiClientSsid) - 1 ) {
     addHtmlPageStart( content );
-    content += String( F("<h2>Error: SSID Name exceeds maximum length of ") ) + String( getWiFiClientSsidNameMaxLength() ) + String( F("</h2>") );
+    content += String( F("<h2>Error: SSID Name exceeds maximum length of ") ) + String( sizeof(wiFiClientSsid) - 1 ) + String( F("</h2>") );
     addHtmlPageEnd( content );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
     wifiWebServer.send( 400, getContentType( F("html") ), content );
     return;
   }
-  if( htmlPageSsidPasswordReceived.length() > getWiFiClientSsidPasswordMaxLength() ) {
+  if( htmlPageSsidPasswordReceived.length() > sizeof(wiFiClientPassword) - 1 ) {
     addHtmlPageStart( content );
-    content += String( F("<h2>Error: SSID Password exceeds maximum length of ") ) + String( getWiFiClientSsidPasswordMaxLength() ) + String( F("</h2>") );
+    content += String( F("<h2>Error: SSID Password exceeds maximum length of ") ) + String( sizeof(wiFiClientPassword) - 1 ) + String( F("</h2>") );
     addHtmlPageEnd( content );
     wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
     wifiWebServer.send( 400, getContentType( F("html") ), content );
@@ -3032,6 +3194,20 @@ void handleWebServerPost() {
   String htmlPageAcRaidAlarmServerApiKeyReceived = wifiWebServer.arg( HTML_PAGE_RAID_SERVER_AC_KEY_NAME );
   String htmlPageAiRaidAlarmServerApiKeyReceived = wifiWebServer.arg( HTML_PAGE_RAID_SERVER_AI_KEY_NAME );
 
+  String htmlPageStripLedBrightnessReceived = wifiWebServer.arg( HTML_PAGE_BRIGHTNESS_NAME );
+  uint stripLedBrightnessReceived = htmlPageStripLedBrightnessReceived.toInt();
+  bool stripLedBrightnessReceivedPopulated = false;
+  if( stripLedBrightnessReceived > 0 && stripLedBrightnessReceived <= 255 ) {
+    stripLedBrightnessReceivedPopulated = true;
+  }
+
+  String htmlPageStripLedBrightnessDimmingNightReceived = wifiWebServer.arg( HTML_PAGE_BRIGHTNESS_NIGHT_NAME );
+  uint stripLedBrightnessDimmingNightReceived = htmlPageStripLedBrightnessDimmingNightReceived.toInt();
+  bool stripLedBrightnessDimmingNightReceivedPopulated = false;
+  if( stripLedBrightnessDimmingNightReceived > 0 && stripLedBrightnessDimmingNightReceived <= 255 ) {
+    stripLedBrightnessDimmingNightReceivedPopulated = true;
+  }
+
   String htmlPageAlarmOnColorReceived = wifiWebServer.arg( HTML_PAGE_ALARM_ON_NAME );
   std::vector<uint8_t> alarmOnColorReceived = getVectorColor( htmlPageAlarmOnColorReceived );
 
@@ -3044,6 +3220,15 @@ void handleWebServerPost() {
   String htmlPageAlarmOnOffColorReceived = wifiWebServer.arg( HTML_PAGE_ALARM_ONOFF_NAME );
   std::vector<uint8_t> alarmOnOffColorReceived = getVectorColor( htmlPageAlarmOnOffColorReceived );
 
+  String htmlPageDeviceNameReceived = wifiWebServer.arg( HTML_PAGE_DEVICE_NAME_NAME );
+
+  String htmlPageHomeRegionReceived = wifiWebServer.arg( HTML_PAGE_HOME_REGION_NAME );
+  uint8_t homeRegionReceived = htmlPageHomeRegionReceived.toInt();
+  bool homeRegionReceivedPopulated = false;
+  if( homeRegionReceived >= -1 ) {
+    homeRegionReceivedPopulated = true;
+  }
+
   String htmlPageIsBeepingEnabledCheckboxReceived = wifiWebServer.arg( HTML_PAGE_IS_BEEPING_ENABLED_NAME );
   bool isBeepingEnabledReceived = false;
   bool isBeepingEnabledReceivedPopulated = false;
@@ -3053,6 +3238,13 @@ void handleWebServerPost() {
   } else if( htmlPageIsBeepingEnabledCheckboxReceived == "" ) {
     isBeepingEnabledReceived = false;
     isBeepingEnabledReceivedPopulated = true;
+  }
+
+  String htmlPageAlertnessSensitivityLevelReceived = wifiWebServer.arg( HTML_PAGE_SENSITIVITY_LEVEL_NAME );
+  uint8_t alertnessSensitivityLevelReceived = htmlPageAlertnessSensitivityLevelReceived.toInt();
+  bool alertnessSensitivityLevelReceivedPopulated = false;
+  if( alertnessSensitivityLevelReceived >= 0 ) {
+    alertnessSensitivityLevelReceivedPopulated = true;
   }
 
   String htmlPageShowOnlyActiveAlarmsCheckboxReceived = wifiWebServer.arg( HTML_PAGE_ONLY_ACTIVE_ALARMS_NAME );
@@ -3077,20 +3269,6 @@ void handleWebServerPost() {
     showStripStatusLedReceivedPopulated = true;
   }
 
-  String htmlPageStripLedBrightnessReceived = wifiWebServer.arg( HTML_PAGE_BRIGHTNESS_NAME );
-  uint stripLedBrightnessReceived = htmlPageStripLedBrightnessReceived.toInt();
-  bool stripLedBrightnessReceivedPopulated = false;
-  if( stripLedBrightnessReceived > 0 && stripLedBrightnessReceived <= 255 ) {
-    stripLedBrightnessReceivedPopulated = true;
-  }
-
-  String htmlPageStripLedBrightnessDimmingNightReceived = wifiWebServer.arg( HTML_PAGE_BRIGHTNESS_NIGHT_NAME );
-  uint stripLedBrightnessDimmingNightReceived = htmlPageStripLedBrightnessDimmingNightReceived.toInt();
-  bool stripLedBrightnessDimmingNightReceivedPopulated = false;
-  if( stripLedBrightnessDimmingNightReceived > 0 && stripLedBrightnessDimmingNightReceived <= 255 ) {
-    stripLedBrightnessDimmingNightReceivedPopulated = true;
-  }
-
   String htmlPagePartyModeCheckboxReceived = wifiWebServer.arg( HTML_PAGE_STRIP_PARTY_MODE_NAME );
   bool stripPartyModeReceived = false;
   bool stripPartyModeReceivedPopulated = false;
@@ -3102,19 +3280,6 @@ void handleWebServerPost() {
     stripPartyModeReceivedPopulated = true;
   }
 
-  String htmlPageHomeRegionReceived = wifiWebServer.arg( HTML_PAGE_HOME_REGION_NAME );
-  uint8_t homeRegionReceived = htmlPageHomeRegionReceived.toInt();
-  bool homeRegionReceivedPopulated = false;
-  if( homeRegionReceived >= -1 ) {
-    homeRegionReceivedPopulated = true;
-  }
-
-  String htmlPageAlertnessSensitivityLevelReceived = wifiWebServer.arg( HTML_PAGE_SENSITIVITY_LEVEL_NAME );
-  uint8_t alertnessSensitivityLevelReceived = htmlPageAlertnessSensitivityLevelReceived.toInt();
-  bool alertnessSensitivityLevelReceivedPopulated = false;
-  if( alertnessSensitivityLevelReceived >= 0 ) {
-    alertnessSensitivityLevelReceivedPopulated = true;
-  }
 
   bool isWiFiChanged = strcmp( wiFiClientSsid, htmlPageSsidNameReceived.c_str() ) != 0 || strcmp( wiFiClientPassword, htmlPageSsidPasswordReceived.c_str() ) != 0;
   bool isDataSourceChanged = raidAlarmServerReceivedPopulated && raidAlarmServerReceived != currentRaidAlarmServer;
@@ -3130,11 +3295,27 @@ void handleWebServerPost() {
   bool isStripStatusRerenderRequired = false;
   bool isReconnectRequired = false;
 
-  char raidAlarmServerApiKeyReceived[RAID_ALARM_SERVER_API_KEY_LENGTH];
+  if( isWiFiChanged ) {
+    Serial.println( F("WiFi settings updated") );
+    strncpy( wiFiClientSsid, htmlPageSsidNameReceived.c_str(), sizeof(wiFiClientSsid) );
+    writeEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, sizeof(wiFiClientSsid) );
+    strncpy( wiFiClientPassword, htmlPageSsidPasswordReceived.c_str(), sizeof(wiFiClientPassword) );
+    writeEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, sizeof(wiFiClientPassword) );
+  }
+
+  if( isDataSourceChanged ) {
+    Serial.println( F("Data source updated") );
+    writeEepromUintValue( eepromRaidAlarmServerIndex, raidAlarmServerReceived );
+    currentRaidAlarmServer = raidAlarmServerReceived;
+    isReconnectRequired = true;
+    isStripRerenderRequired = true;
+  }
+
+  char raidAlarmServerApiKeyReceived[sizeof(raidAlarmServerApiKey)];
   if( htmlPageUaRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( UA_RAID_ALARM_SERVER ) ) {
     Serial.println( F("UA server api key updated") );
     strcpy( raidAlarmServerApiKeyReceived, htmlPageUaRaidAlarmServerApiKeyReceived.c_str() );
-    writeEepromCharArray( eepromUaRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    writeEepromCharArray( eepromUaRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, sizeof(raidAlarmServerApiKey) );
     if( raidAlarmServerReceived == UA_RAID_ALARM_SERVER ) {
       isReconnectRequired = true;
     }
@@ -3142,7 +3323,7 @@ void handleWebServerPost() {
   if( htmlPageAcRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ) ) {
     Serial.println( F("AC server api key updated") );
     strcpy( raidAlarmServerApiKeyReceived, htmlPageAcRaidAlarmServerApiKeyReceived.c_str() );
-    writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, sizeof(raidAlarmServerApiKey) );
     if( raidAlarmServerReceived == AC_RAID_ALARM_SERVER ) {
       isReconnectRequired = true;
     }
@@ -3150,10 +3331,31 @@ void handleWebServerPost() {
   if( htmlPageAiRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ) ) {
     Serial.println( F("AI server api key updated") );
     strcpy( raidAlarmServerApiKeyReceived, htmlPageAiRaidAlarmServerApiKeyReceived.c_str() );
-    writeEepromCharArray( eepromAiRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, RAID_ALARM_SERVER_API_KEY_LENGTH );
+    writeEepromCharArray( eepromAiRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, sizeof(raidAlarmServerApiKey) );
     if( raidAlarmServerReceived == AI_RAID_ALARM_SERVER ) {
       isReconnectRequired = true;
     }
+  }
+
+  if( showStripStatusLedReceivedPopulated && showStripStatusLedReceived != showStripIdleStatusLed ) {
+    showStripIdleStatusLed = showStripStatusLedReceived;
+    isStripStatusRerenderRequired = true;
+    Serial.println( F("Show status LED when idle updated") );
+    writeEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripStatusLedReceived );
+  }
+
+  if( stripLedBrightnessReceivedPopulated && stripLedBrightnessReceived != stripLedBrightness ) {
+    stripLedBrightness = stripLedBrightnessReceived;
+    isStripRerenderRequired = true;
+    Serial.println( F("Strip brightness updated") );
+    writeEepromUintValue( eepromStripLedBrightnessIndex, stripLedBrightnessReceived );
+  }
+
+  if( stripLedBrightnessDimmingNightReceivedPopulated && stripLedBrightnessDimmingNightReceived != stripLedBrightnessDimmingNight ) {
+    stripLedBrightnessDimmingNight = stripLedBrightnessDimmingNightReceived;
+    isStripRerenderRequired = true;
+    Serial.println( F("Strip night brightness updated") );
+    writeEepromUintValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNightReceived );
   }
 
   if( alarmOnColorReceived != raidAlarmStatusColorActive ) {
@@ -3184,47 +3386,13 @@ void handleWebServerPost() {
     writeEepromColor( eepromAlarmOnOffIndex, alarmOnOffColorReceived );
   }
 
-  if( isBeepingEnabledReceivedPopulated && isBeepingEnabledReceived != isBeepingEnabled ) {
-    isBeepingEnabled = isBeepingEnabledReceived;
-    Serial.println( F("Beeping on alarms updated") );
-    writeEepromBoolValue( eepromIsBeepingEnabledIndex, isBeepingEnabledReceived );
+
+  if( strcmp( deviceName, htmlPageDeviceNameReceived.c_str() ) != 0 ) {
+    Serial.println( F("Device name updated") );
+    strncpy( deviceName, htmlPageDeviceNameReceived.c_str(), sizeof(deviceName) );
+    writeEepromCharArray( eepromDeviceNameIndex, deviceName, sizeof(deviceName) );
   }
 
-  if( showOnlyActiveAlarmsReceivedPopulated && showOnlyActiveAlarmsReceived != showOnlyActiveAlarms ) {
-    showOnlyActiveAlarms = showOnlyActiveAlarmsReceived;
-    isStripRerenderRequired = true;
-    Serial.println( F("Show raid alarms only updated") );
-    writeEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarmsReceived );
-  }
-
-  if( showStripStatusLedReceivedPopulated && showStripStatusLedReceived != showStripIdleStatusLed ) {
-    showStripIdleStatusLed = showStripStatusLedReceived;
-    isStripStatusRerenderRequired = true;
-    Serial.println( F("Show status LED when idle updated") );
-    writeEepromBoolValue( eepromShowStripIdleStatusLedIndex, showStripStatusLedReceived );
-  }
-
-  if( stripLedBrightnessReceivedPopulated && stripLedBrightnessReceived != stripLedBrightness ) {
-    stripLedBrightness = stripLedBrightnessReceived;
-    isStripRerenderRequired = true;
-    Serial.println( F("Strip brightness updated") );
-    writeEepromUintValue( eepromStripLedBrightnessIndex, stripLedBrightnessReceived );
-  }
-
-  if( stripLedBrightnessDimmingNightReceivedPopulated && stripLedBrightnessDimmingNightReceived != stripLedBrightnessDimmingNight ) {
-    stripLedBrightnessDimmingNight = stripLedBrightnessDimmingNightReceived;
-    isStripRerenderRequired = true;
-    Serial.println( F("Strip night brightness updated") );
-    writeEepromUintValue( eepromStripLedBrightnessDimmingNightIndex, stripLedBrightnessDimmingNightReceived );
-  }
-
-  if( stripPartyModeReceivedPopulated && stripPartyModeReceived != stripPartyMode ) {
-    stripPartyMode = stripPartyModeReceived;
-    //isStripRerenderRequired = true;
-    Serial.println( F("Strip party mode updated") );
-    stripPartyModeHue = 0;
-    writeEepromUintValue( eepromStripPartyModeIndex, stripPartyModeReceived );
-  }
 
   if( homeRegionReceivedPopulated && homeRegionReceived != alertnessHomeRegionIndex ) {
     alertnessHomeRegionIndex = homeRegionReceived;
@@ -3236,22 +3404,38 @@ void handleWebServerPost() {
     writeEepromIntValue( eepromAlertnessHomeRegionIndex, homeRegionReceived );
   }
 
+  if( isBeepingEnabledReceivedPopulated && isBeepingEnabledReceived != isBeepingEnabled ) {
+    isBeepingEnabled = isBeepingEnabledReceived;
+    Serial.println( F("Beeping on alarms updated") );
+    writeEepromBoolValue( eepromIsBeepingEnabledIndex, isBeepingEnabledReceived );
+  }
+
   if( alertnessSensitivityLevelReceivedPopulated && alertnessSensitivityLevelReceived != alertnessSensitivityLevel ) {
     alertnessSensitivityLevel = alertnessSensitivityLevelReceived;
     Serial.println( F("Alertness sensitivity level updated") );
     writeEepromIntValue( eepromAlertnessSensitivityLevelIndex, alertnessSensitivityLevelReceived );
   }
 
-  if( isDataSourceChanged ) {
-    Serial.println( F("Data source updated") );
-    writeEepromUintValue( eepromRaidAlarmServerIndex, raidAlarmServerReceived );
-    Serial.println( F("Switching to new data source...") );
-    currentRaidAlarmServer = raidAlarmServerReceived;
-    isReconnectRequired = true;
+  if( showOnlyActiveAlarmsReceivedPopulated && showOnlyActiveAlarmsReceived != showOnlyActiveAlarms ) {
+    showOnlyActiveAlarms = showOnlyActiveAlarmsReceived;
     isStripRerenderRequired = true;
+    Serial.println( F("Show raid alarms only updated") );
+    writeEepromBoolValue( eepromShowOnlyActiveAlarmsIndex, showOnlyActiveAlarmsReceived );
   }
 
+  if( stripPartyModeReceivedPopulated && stripPartyModeReceived != stripPartyMode ) {
+    stripPartyMode = stripPartyModeReceived;
+    //isStripRerenderRequired = true;
+    Serial.println( F("Strip party mode updated") );
+    stripPartyModeHue = 0;
+    writeEepromUintValue( eepromStripPartyModeIndex, stripPartyModeReceived );
+  }
+
+
   if( isReconnectRequired ) {
+    if( isDataSourceChanged ) {
+      Serial.println( F("Switching to new data source...") );
+    }
     if( currentRaidAlarmServer == UA_RAID_ALARM_SERVER ) { //if this not reset and UA source was used before, then the data update won't happen, since the code will think that we already have up-do-date values
       uaResetLastActionHash();
     }
@@ -3267,11 +3451,7 @@ void handleWebServerPost() {
   }
 
   if( isWiFiChanged ) {
-    Serial.println( F("WiFi settings updated") );
-    strncpy( wiFiClientSsid, htmlPageSsidNameReceived.c_str(), sizeof(wiFiClientSsid) );
-    strncpy( wiFiClientPassword, htmlPageSsidPasswordReceived.c_str(), sizeof(wiFiClientPassword) );
-    writeEepromCharArray( eepromWiFiSsidIndex, wiFiClientSsid, WIFI_SSID_MAX_LENGTH );
-    writeEepromCharArray( eepromWiFiPasswordIndex, wiFiClientPassword, WIFI_PASSWORD_MAX_LENGTH );
+    Serial.println( F("Switching to new WiFi...") );
     shutdownAccessPoint();
     connectToWiFi( true );
   }
@@ -3346,11 +3526,11 @@ void handleWebServerGetReset() {
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
 
-  for( uint16_t eepromIndex = 0; eepromIndex <= eepromLastByteIndex; eepromIndex++ ) {
-    EEPROM.write( eepromIndex, 255 );
-  }
+  writeEepromUintValue( eepromFlashDataVersionIndex, 255 );
   EEPROM.commit();
-  delay( 200 );
+  delay( 20 );
+
+  delay( 500 );
   ESP.restart();
 }
 
@@ -3361,6 +3541,8 @@ void handleWebServerGetReboot() {
   addHtmlPageEnd( content );
   wifiWebServer.sendHeader( String( F("Content-Length") ).c_str(), String( content.length() ) );
   wifiWebServer.send( 200, getContentType( F("html") ), content );
+
+  delay( 500 );
   ESP.restart();
 }
 
@@ -3374,24 +3556,38 @@ void handleWebServerGetPing() {
 
 void handleWebServerGetMonitor() {
   String content = String( F(""
-  "{"
-    "\"net\":{"
-      "\"host\":\"") ) + getFullWiFiHostName() + String( F("\""
-    "},"
-    "\"brt\":{"
-      "\"cur\":") ) + String( analogRead( BRIGHTNESS_INPUT_PIN ) ) + String( F(","
-      "\"avg\":") ) + String( sensorBrightnessAverage ) + String( F(","
-      "\"req\":") ) + String( ledStripBrightnessCurrent ) + String( F(","
-      "\"on\":\"") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent ) ) + String( F("\","
-      "\"off\":\"") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent ) ) + String( F("\""
-    "},"
-    "\"ram\":{"
-      "\"heap\":\"") ) + String( ESP.getFreeHeap() ) + String( F("\","
-      "\"frag\":\"") ) + String( ESP.getHeapFragmentation() ) + String( F("\""
-    "},"
-    "\"cpu\":{"
-      "\"freq\":\"") ) + String( ESP.getCpuFreqMHz() ) + String( F("\""
-    "}"
+  "{\n"
+    "\t\"net\": {\n"
+      "\t\t\"host\": \"") ) + getFullWiFiHostName() + String( F("\"\n"
+    "\t},\n"
+    "\t\"brt\": {\n"
+      "\t\t\"cur\": ") ) + String( analogRead( BRIGHTNESS_INPUT_PIN ) ) + String( F(",\n"
+      "\t\t\"avg\": ") ) + String( sensorBrightnessAverage ) + String( F(",\n"
+      "\t\t\"req\": ") ) + String( ledStripBrightnessCurrent ) + String( F(",\n"
+      "\t\t\"on\": \"") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorActive, ledStripBrightnessCurrent ) ) + String( F("\",\n"
+      "\t\t\"off\": \"") ) + serialiseColor( getRequestedColor( raidAlarmStatusColorInactive, ledStripBrightnessCurrent ) ) + String( F("\"\n"
+    "\t},\n"
+    "\t\"ram\": {\n"
+      "\t\t\"heap\": ") ) + String( ESP.getFreeHeap() );
+      #ifdef ESP8266
+      content = content + String( F(",\n"
+        "\t\t\"frag\": ") ) + String( ESP.getHeapFragmentation() ) + String( F("\n") );
+      #else
+      content = content + String( F("\n") );
+      #endif
+      content = content + String( F(""
+    "\t},\n"
+    "\t\"cpu\": {\n"
+      "\t\t\"chip\": \"") ) +
+        #ifdef ESP8266
+        String( F("ESP8266") )
+        #else //ESP32 or ESP32S2
+        String( F("ESP32 / ESP32S2") )
+        #endif
+      + String( F("\",\n"
+      "\t\t\"freq\": \"") ) + String( ESP.getCpuFreqMHz() ) + String( F("\",\n"
+      "\t\t\"millis\": ") ) + String( millis() ) + String( F("\n"
+    "\t}\n"
   "}" ) );
   wifiWebServer.send( 200, getContentType( F("json") ), content );
 }
@@ -3425,10 +3621,9 @@ void handleWebServerGetMap() {
     return;
   }
 
-  String content;
-
   String dataSet = wifiWebServer.arg("d");
   if( dataSet != "" ) {
+    String content;
     content += "{";
     const std::vector<std::vector<const char*>>& allRegions = getRegions();
     for( uint8_t ledIndex = 0; ledIndex < allRegions.size(); ledIndex++ ) {
@@ -3447,36 +3642,47 @@ void handleWebServerGetMap() {
   String anchorId = wifiWebServer.arg("id");
   String mapId = anchorId == "" ? F("map") : anchorId;
 
-  if( anchorId == "" ) {
-    content.reserve( 10000 ); //currently around 8100
-  } else {
-    content.reserve( 6000 ); //currently around 5000
-  }
+  wifiWebServer.setContentLength( CONTENT_LENGTH_UNKNOWN );
+  wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
+  wifiWebServer.send( 200, anchorId == "" ? getContentType( F("html") ) : getContentType( F("js") ), "" );
+
+  String content;
+  content.reserve( 5000 ); //currently 3800 max (when sending Html Page Start)
 
   if( anchorId == "" ) {
+    //3800
     addHtmlPageStart( content );
+    wifiWebServer.sendContent( content );
+    content = "";
   }
 
-  content += ( anchorId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) +
-  String( F("function initMap(){"
-    "let ae=document.querySelector('#") ) + mapId + String( F("');"
+  //3200
+  content += ( anchorId == "" ? String( F("<div id=\"") ) + mapId + String( F("\"><script>") ) : "" ) + String( F(""
+  "let mapId='" ) ) + mapId + String( F("';"
+  "let anchorId='" ) ) + anchorId + String( F("';"
+  "function initMap(){"
+    "let ae=document.querySelector('#'+mapId);"
     "if(!ae)return;"
     "let aes=document.createElement('style');"
-    "aes.textContent='") ) +
-      ( anchorId == "" ? String( F( ".wrp{width:94%;max-width:calc(147vh - 147px);}" ) ) : "" ) + String( F(""
-      "#") ) + mapId + String( F("{position:relative;display:flex;justify-content:center;margin-top:1em;padding-top:calc((680/1000)*100%);}"
-      "#") ) + mapId + String( F(" img.map{z-index:1;}"
-      "#") ) + mapId + String( F(" img{position:absolute;display:block;width:100%;top:0;}"
-      "#") ) + mapId + String( F(" .mapl{position:absolute;z-index:2;top:0;cursor:default;line-height:1;font-size:") ) + ( anchorId == "" ? String( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") ) : String( F("max(6.18px,calc(min(60vw,600px)/76))") ) ) + String( F(";}"
-      "#") ) + mapId + String( F(" .mapp{position:absolute;z-index:2;top:0;cursor:default;background:#A1A1A1;border-radius:50%;transform:translate(-50%,-50%);width:") ) + ( anchorId == "" ? String( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") ) : String( F("max(6.18px,calc(min(60vw,600px)/76))") ) ) + String( F(";height:") ) + ( anchorId == "" ? String( F("max(6px,calc(min(94vw,calc(147vh - 147px))/76))") ) : String( F("max(6.18px,calc(min(60vw,600px)/76))") ) ) + String( F(";}"
+    "aes.textContent=(anchorId==''?'.wrp{width:94%;max-width:calc(147vh - 147px);}':'')+'"
+      "#'+mapId+' a.mapa{position:absolute;right:0;top:0;z-index:3;}"
+      "#'+mapId+'{position:relative;display:flex;justify-content:center;padding-top:calc((680/1000)*100%);}"
+      "#'+mapId+' img.map{z-index:1;}"
+      "#'+mapId+' img{position:absolute;display:block;width:100%;top:0;}"
+      "#'+mapId+' .mapl,#'+mapId+' .mapp{position:absolute;z-index:2;top:0;cursor:default;}"
+      "#'+mapId+' .mapl{line-height:1;font-size:'+(anchorId==''?'max(6px,calc(min(94vw,calc(147vh - 147px))/76))':'max(6.18px,calc(min(60vw,600px)/76))')+';}"
+      "#'+mapId+' .mapp{background:#A1A1A1;border-radius:50%;transform:translate(-50%,-50%);width:'+(anchorId==''?'max(6px,calc(min(94vw,calc(147vh - 147px))/76))':'max(6.18px,calc(min(60vw,600px)/76))')+';height:'+(anchorId==''?'max(6px,calc(min(94vw,calc(147vh - 147px))/76))':'max(6.18px,calc(min(60vw,600px)/76))')+';}"
+      "#'+mapId+' img.mapG{filter:sepia(1) contrast(1.6) brightness(2.0) hue-rotate(77deg);}"
+      "#'+mapId+' img.mapR{filter:sepia(1) contrast(2.2) brightness(4.5) hue-rotate(341deg);}"
+      "#'+mapId+' img.mapY{filter:sepia(1) contrast(1.7) brightness(2.8) hue-rotate(20deg);}"
       "@media(max-device-width:800px) and (orientation:portrait){"
-        "#") ) + mapId + String( F(" .mapl{font-size:calc(94vw/76);}"
-        "#") ) + mapId + String( F(" .mapp{width:calc(94vw/76);height:calc(94vw/76);}"
+        "#'+mapId+' .mapl{font-size:calc(94vw/76);}"
+        "#'+mapId+' .mapp{width:calc(94vw/76);height:calc(94vw/76);}"
       "}"
     "';"
     "ae.appendChild(aes);"
-    "ae.innerHTML+='") ) +
-      ( anchorId == "" ? String( F("<a href=\"/\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати налаштування</a>") ) : String( F("<a href=\"/map\" style=\"position:absolute;right:0;top:0;z-index:3;\">Показати мапу</a>") ) ) + String( F(""
+    "ae.innerHTML+='"
+      "<a class=\"mapa\" href='+(anchorId==''?'\"/\">Показати налаштування':'\"/map\">На весь екран')+'</a>"
       "<div>"
         "<div class=\"mapl\" style=\"top:46.7%;left:3.0%;\">УЖГОРОД</div>"
         "<div class=\"mapl\" style=\"top:25.1%;left:10.5%;\">ЛЬВІВ</div>"
@@ -3503,7 +3709,12 @@ void handleWebServerGetMap() {
         "<div class=\"mapl\" style=\"top:68.3%;left:44.5%;\">ОДЕСА</div>"
         "<div class=\"mapl\" style=\"top:87.7%;left:64.2%;\">СІМФЕРОПОЛЬ</div>"
         "<div class=\"mapl\" style=\"top:74.7%;left:59.2%;\">ХЕРСОН</div>"
-      "</div>"
+      "</div>" ) );
+  wifiWebServer.sendContent( content );
+  content = "";
+
+  //3000
+  content += String( F(""
       "<div>"
         "<div class=\"mapp\" style=\"top:44.1%;left:3.0%;\"></div>"
         "<div class=\"mapp\" style=\"top:29.4%;left:11.5%;\"></div>"
@@ -3531,37 +3742,127 @@ void handleWebServerGetMap() {
         "<div class=\"mapp\" style=\"top:92.0%;left:69.5%;\"></div>"
         "<div class=\"mapp\" style=\"top:72.1%;left:60.5%;\"></div>"
       "</div>"
+      "<img class=\"map\" src=\"/map?f=map.svg\">"
     "';"
-    "let map=ae.querySelector('.map');"
-    "if(!map){"
-      "map=document.createElement('img');"
-      "map.classList.add('map');"
-      "map.setAttribute('src','/map?f=map.svg');"
-      "ae.appendChild(map);"
-    "}"
     "setInterval(()=>{"
       "updateMap();"
     "},5000);"
     "updateMap();"
   "}"
+  "const aniTimers={};" //Key: image class, Value: Timer Id
+
+  "function animateMap(mapCls){"
+    "if(!mapCls)return;"
+    "const img=document.querySelector('#'+mapId+' img.'+mapCls);"
+    "if(!img)return;"
+    "if(aniTimers[mapCls]){"
+      "clearTimeout(aniTimers[mapCls]);"
+      "img.classList.remove('mapY');"
+    "}"
+    "let aniFrame=0;"
+    "function aniStep(){"
+      "if(aniFrame>=10){"
+        "delete aniTimers[mapCls];"
+        "img.classList.remove('mapY');"
+        "return;"
+      "}"
+      "if(aniFrame%2==0){"
+        "img.classList.add('mapY');"
+      "}else{"
+        "img.classList.remove('mapY');"
+      "}"
+      "aniTimers[mapCls]=setTimeout(aniStep,500);"
+      "aniFrame++;"
+    "}"
+    "aniStep();"
+  "}"
+  /*"function animateMap(mapCls,mapSrc,mapTmp){"
+    "if(!mapCls)return;"
+    "const img=document.querySelector('#'+mapId+' img.'+mapCls);"
+    "if(!img)return;"
+    "if(aniTimers[mapCls]){"
+      "clearTimeout(aniTimers[mapCls]);"
+      "img.src=mapSrc;"
+    "}"
+    "const aniSrcs=[];"
+    "for(let i=0;i<10;i++){"
+      "aniSrcs.push(i%2==0?mapTmp:mapSrc);"
+    "}"
+    "function aniStep(){"
+      "if(!aniSrcs.length){"
+        "delete aniTimers[mapCls];"
+        "img.src=mapSrc;"
+        "return;"
+      "}"
+      "img.src=aniSrcs.shift();"
+      "aniTimers[mapCls]=setTimeout(aniStep,500);"
+    "}"
+    "aniStep();"
+  "}"*/
+
+  "let updateMapAbortCont=null;"
   "function updateMap(){"
-    "fetch(\"/map?d=1\").then(resp=>resp.json()).then(data=>{"
+    "if(updateMapAbortCont){"
+      "updateMapAbortCont.abort();"
+    "}"
+    "updateMapAbortCont=new AbortController();"
+    "const signal=updateMapAbortCont.signal;"
+    "const timeoutId=setTimeout(()=>{"
+      "updateMapAbortCont.abort();"
+    "},4000);"
+    "fetch(\"/map?d=1\",{signal})"
+    ".then(resp=>resp.json())"
+    ".then(data=>{"
+      "clearTimeout(timeoutId);"
       "Object.entries(data).forEach(([region,status])=>{"
-        "let ae=document.querySelector('#") ) + mapId + String( F("');"
+        "let ae=document.querySelector('#'+mapId);"
         "if(!ae)return;"
-        "let mapc='map'+region;"
-        "let mapl='/map?f='+'map_'+region+(status==1?'_1':status==0?'_0':'')+'.gif';"
-        "let map=ae.querySelector('img.'+mapc);"
+        "let mapCls='map'+region;"
+
+        "let mapSrc='/map?f='+'map'+region+'.gif';"
+        "let statusCls=status==1?'mapR':status==0?'mapG':'';"
+        "let map=ae.querySelector('img.'+mapCls);"
         "if(!map){"
           "map=document.createElement('img');"
-          "map.classList.add(mapc);"
-          "map.setAttribute('src',mapl);"
+          "map.classList.add(mapCls);"
+          "map.setAttribute('src',mapSrc);"
+          "if(statusCls!='')map.classList.add(statusCls);"
           "ae.appendChild(map);"
         "}else{"
-          "if(map.src!=mapl)map.src=mapl;"
+          "if(statusCls==''||!map.classList.contains(statusCls)){"
+            "map.classList.remove('mapR','mapG');"
+            "if(statusCls!=''){"
+              "map.classList.add(statusCls);"
+              "animateMap(mapCls);"
+            "}"
+          "}"
         "}"
+        /*"let mapSrc='/map?f='+'map'+region+(status==1?'_1':status==0?'_0':'')+'.gif';"
+        "let map=ae.querySelector('img.'+mapCls);"
+        "if(!map){"
+          "map=document.createElement('img');"
+          "map.classList.add(mapCls);"
+          "map.setAttribute('src',mapSrc);"
+          "ae.appendChild(map);"
+        "}else{"
+          "if(map.getAttribute('src')!=mapSrc){"
+            "map.src=mapSrc;"
+            "let mapTmp='/map?f='+'map'+region+'_2.gif';"
+            "animateMap(mapCls,mapSrc,mapTmp);"
+          "}"
+        "}"*/
+
       "});"
-    "}).catch(e=>{});"
+    "})"
+    ".catch(e=>{"
+      "clearTimeout(timeoutId);"
+      "if(e.name==='AbortError'){"
+      "}else{"
+      "}"
+    "})"
+    ".finally(()=>{"
+      "updateMapAbortCont=null;"
+    "});"
   "}"
   "initMap();") ) +
   ( anchorId == "" ? String( F("</script></div>") ) : "" );
@@ -3569,14 +3870,8 @@ void handleWebServerGetMap() {
   if( anchorId == "" ) {
     addHtmlPageEnd( content );
   }
-
-  if( anchorId == "" ) {
-    wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
-    wifiWebServer.send( 200, getContentType( F("html") ), content );
-  } else {
-    wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
-    wifiWebServer.send( 200, getContentType( F("js") ), content );
-  }
+  wifiWebServer.sendContent( content );
+  content = "";
 
   if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
     apStartedMillis = millis();
@@ -3628,17 +3923,42 @@ void configureWebServer() {
   httpUpdater.setup( &wifiWebServer );
 }
 
-
+#ifdef ESP8266
 /*WiFiEventHandler wiFiEventHandler;
-void onWiFiConnected( const WiFiEventStationModeConnected&event ) {
-
+void onWiFiConnected( const WiFiEventStationModeConnected& event ) {
+  Serial.println( String( F("WiFi is connected to '") ) + String( event.ssid ) + String ( F("'") ) );
 }*/
+#else //ESP32 or ESP32S2
+/*void WiFiEvent( WiFiEvent_t event ) {
+  switch( event ) {
+    case SYSTEM_EVENT_STA_GOT_IP:
+      Serial.println( String( F("WiFi is connected to '") ) + String( WiFi.SSID() ) + String ( F("' with IP ") ) + WiFi.localIP().toString() );
+      break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+      //
+      break;
+    default:
+      break;
+  }
+}*/
+#endif
 
 //setup and main loop
 void setup() {
   Serial.begin( 115200 );
   Serial.println();
   Serial.println( String( F("Air Raid Alarm Monitor by Dmytro Kurylo. V@") ) + getFirmwareVersion() + String( F(" CPU@") ) + String( ESP.getCpuFreqMHz() ) );
+
+#ifdef ESP8266
+
+#elif defined(ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+  pinMode( HARD_RESET_PIN, INPUT_PULLDOWN );
+  if( digitalRead( HARD_RESET_PIN ) ) {
+    eepromFlashDataVersion = 255;
+  }
+#else
+
+#endif
 
   initBeeper();
   initInternalLed();
@@ -3649,7 +3969,11 @@ void setup() {
   setAdjacentRegions();
   LittleFS.begin();
   configureWebServer();
+  #ifdef ESP8266
   //wiFiEventHandler = WiFi.onStationModeConnected( &onWiFiConnected );
+  #else //ESP32 or ESP32S2
+  //WiFi.onEvent( WiFiEvent );
+  #endif
   connectToWiFi( false );
   startWebServer();
 }

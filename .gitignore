@@ -11,5 +11,12 @@ include
 .pio/build/d1_mini/*
 !.pio/build/d1_mini/firmware.bin
 !.pio/build/d1_mini/littlefs.bin
+.pio/build/lolin_s2_mini/*
+!.pio/build/lolin_s2_mini/bootloader.bin
+!.pio/build/lolin_s2_mini/firmware.bin
+!.pio/build/lolin_s2_mini/littlefs.bin
+!.pio/build/lolin_s2_mini/partitions.bin
 resources/*_apikey.txt
 resources/gzip.exe
+resources/fs_files/
+resources/fs_files/*
