@@ -22,6 +22,8 @@
 #include <Adafruit_NeoPixel.h>
 #include <LittleFS.h>
 
+#include <TCData.h>
+
 uint8_t EEPROM_FLASH_DATA_VERSION = 2; //change to next number when eeprom data format is changed. 255 is a reserved value: is set to 255 when: hard reset pin is at 3.3V (high); during factory reset procedure; when FW is loaded to a new device (EEPROM reads FF => 255)
 uint8_t eepromFlashDataVersion = EEPROM_FLASH_DATA_VERSION;
 const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
@@ -3860,15 +3862,13 @@ void handleWebServerGetMap() {
 }
 
 void handleWebServerGetFavIcon() {
-  File file = getFileFromFlash( F("favicon.ico") );
-  if( !file ) {
-    wifiWebServer.send( 404, getContentType( F("txt") ), F("File not found") );
-  } else {
-    wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
-    wifiWebServer.streamFile( file, F("image/x-icon") );
-    file.close();
+  wifiWebServer.sendHeader( F("Cache-Control"), String( F("max-age=86400") ) );
+  wifiWebServer.sendHeader( F("Content-Encoding"), F("gzip") );
+  wifiWebServer.send_P( 200, getContentType( F("ico") ).c_str(), (const char*)TCData::getFavIcon(), TCData::getFavIconSize() );
+
+  if( isApInitialized ) { //this resets AP timeout when user loads the page in AP mode
+    apStartedMillis = millis();
   }
-  return;
 }
 
 bool isWebServerInitialized = false;
