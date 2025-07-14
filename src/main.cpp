@@ -50,7 +50,7 @@ const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
 #ifdef ESP8266
 
 #elif defined(ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S3)
-  uint8_t HARD_RESET_PIN = 12; //has to be high on load to perform hard reset
+  #define HARD_RESET_PIN 14 //has to be high on load to perform hard reset
 #else
 
 #endif
@@ -3674,7 +3674,8 @@ void handleWebServerGetMap() {
       "#'+mapId+' .mapp{background:#A1A1A1;border-radius:50%;transform:translate(-50%,-50%);width:'+(anchorId==''?'max(6px,calc(min(94vw,calc(147vh - 147px))/76))':'max(6.18px,calc(min(60vw,600px)/76))')+';height:'+(anchorId==''?'max(6px,calc(min(94vw,calc(147vh - 147px))/76))':'max(6.18px,calc(min(60vw,600px)/76))')+';}"
       "#'+mapId+' img{position:absolute;display:block;}"
       "#'+mapId+' img.map{z-index:1;width:100%;top:0;left:0;}"
-      "#'+mapId+' img.mapi{width:500%;height:500%;}"
+      "#'+mapId+' img.mapi{top:0;left:0;width:100%;height:100%;}"
+      /*"#'+mapId+' img.mapi{width:500%;height:500%;}"*/
       "#'+mapId+' img.mapG{filter:sepia(1) contrast(1.6) brightness(2.0) hue-rotate(77deg);}"
       "#'+mapId+' img.mapR{filter:sepia(1) contrast(2.2) brightness(4.5) hue-rotate(341deg);}"
       "#'+mapId+' img.mapY{filter:sepia(1) contrast(1.7) brightness(2.8) hue-rotate(20deg);}"
@@ -3747,6 +3748,34 @@ void handleWebServerGetMap() {
   content += String( F(""
       "<div>"
         "<img class=\"map\" src=\"/map?f=map.svg\">"
+        "<img class=\"mapi map0\" src=\"/map?f=map0.gif\">"
+        "<img class=\"mapi map1\" src=\"/map?f=map1.gif\">"
+        "<img class=\"mapi map2\" src=\"/map?f=map2.gif\">"
+        "<img class=\"mapi map3\" src=\"/map?f=map3.gif\">"
+        "<img class=\"mapi map4\" src=\"/map?f=map4.gif\">"
+        "<img class=\"mapi map5\" src=\"/map?f=map5.gif\">"
+        "<img class=\"mapi map6\" src=\"/map?f=map6.gif\">"
+        "<img class=\"mapi map7\" src=\"/map?f=map7.gif\">"
+        "<img class=\"mapi map8\" src=\"/map?f=map8.gif\">"
+        "<img class=\"mapi map9\" src=\"/map?f=map9.gif\">"
+        "<img class=\"mapi map10\" src=\"/map?f=map10.gif\">"
+        "<img class=\"mapi map11\" src=\"/map?f=map11.gif\">"
+        "<img class=\"mapi map12\" src=\"/map?f=map12.gif\">"
+        "<img class=\"mapi map13\" src=\"/map?f=map13.gif\">"
+        "<img class=\"mapi map14\" src=\"/map?f=map14.gif\">"
+        "<img class=\"mapi map15\" src=\"/map?f=map15.gif\">"
+        "<img class=\"mapi map16\" src=\"/map?f=map16.gif\">"
+        "<img class=\"mapi map17\" src=\"/map?f=map17.gif\">"
+        "<img class=\"mapi map18\" src=\"/map?f=map18.gif\">"
+        "<img class=\"mapi map19\" src=\"/map?f=map19.gif\">"
+        "<img class=\"mapi map20\" src=\"/map?f=map20.gif\">"
+        "<img class=\"mapi map21\" src=\"/map?f=map21.gif\">"
+        "<img class=\"mapi map22\" src=\"/map?f=map22.gif\">"
+        "<img class=\"mapi map23\" src=\"/map?f=map23.gif\">"
+        "<img class=\"mapi map24\" src=\"/map?f=map24.gif\">"
+      "</div>"
+      /*"<div>"
+        "<img class=\"map\" src=\"/map?f=map.svg\">"
         "<img class=\"mapi map0\" src=\"/map?f=map.gif\" style=\"top:0%;left:0%;\">"
         "<img class=\"mapi map1\" src=\"/map?f=map.gif\" style=\"top:0%;left:-100%;\">"
         "<img class=\"mapi map2\" src=\"/map?f=map.gif\" style=\"top:0%;left:-200%;\">"
@@ -3772,7 +3801,7 @@ void handleWebServerGetMap() {
         "<img class=\"mapi map22\" src=\"/map?f=map.gif\" style=\"top:-400%;left:-200%;\">"
         "<img class=\"mapi map23\" src=\"/map?f=map.gif\" style=\"top:-400%;left:-300%;\">"
         "<img class=\"mapi map24\" src=\"/map?f=map.gif\" style=\"top:-400%;left:-400%;\">"
-      "</div>"
+      "</div>"*/
     "';"
     "setInterval(()=>{"
       "updateMap();"
@@ -3930,16 +3959,16 @@ void setup() {
   Serial.println();
   Serial.println( String( F("Air Raid Alarm Monitor by Dmytro Kurylo. V@") ) + getFirmwareVersion() + String( F(" CPU@") ) + String( ESP.getCpuFreqMHz() ) );
 
-#ifdef ESP8266
+  #ifdef ESP8266
 
-#elif defined(ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+  #elif defined(ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S3)
   pinMode( HARD_RESET_PIN, INPUT_PULLDOWN );
   if( digitalRead( HARD_RESET_PIN ) ) {
     eepromFlashDataVersion = 255;
   }
-#else
+  #else
 
-#endif
+  #endif
 
   initBeeper();
   initInternalLed();
