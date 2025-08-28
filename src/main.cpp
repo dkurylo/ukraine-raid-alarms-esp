@@ -2969,7 +2969,7 @@ void handleWebServerGet() {
         "scriptEl.textContent=data;"
         "document.querySelector('#map').appendChild(scriptEl);"
       "}).catch(e=>{});"
-      "fetch(\"https://raw.githubusercontent.com/dkurylo/ukraine-raid-alarms-esp/refs/heads/main/fw_version.txt\").then(resp=>resp.text()).then(data=>{"
+      "fetch(\"https://github.com/dkurylo/ukraine-raid-alarms-esp/raw/refs/heads/main/fw_version.txt\").then(resp=>resp.text()).then(data=>{"
         "if(fw!=data){"
           "let up=document.getElementById(\"fwup\");if(up){up.classList.add(\"act\");up.textContent+=' ('+fw+' → '+data+')';}"
         "}"
