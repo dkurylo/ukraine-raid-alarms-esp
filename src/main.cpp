@@ -26,7 +26,7 @@
 
 uint8_t EEPROM_FLASH_DATA_VERSION = 1; //change to next number when eeprom data format is changed. 255 is a reserved value: is set to 255 when: hard reset pin is at 3.3V (high); during factory reset procedure; when FW is loaded to a new device (EEPROM reads FF => 255)
 uint8_t eepromFlashDataVersion = EEPROM_FLASH_DATA_VERSION;
-const char* getFirmwareVersion() { const char* result = "1.01"; return result; }
+const char* getFirmwareVersion() { const char* result = "1.02"; return result; }
 
 #ifdef ESP8266
 #define BRIGHTNESS_INPUT_PIN A0
@@ -2830,6 +2830,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       "output{padding-left:0.6em;}"
       "button:not(.fixed){width:100%;padding:0.2em;}"
       "a{color:#AAA;}"
+      "a.act{color:#F88;}"
       ".sub+.sub{padding-left:0.6em;}"
       ".ft{margin-top:1em;}"
       ".pl{padding-left:0.6em;}"
@@ -2861,7 +2862,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
         "<span id=\"title\">МАПА ТРИВОГ</span>"
         "<div style=\"line-height:0.5;\">"
           "<div class=\"lnk\" style=\"font-size:50%;\">Розробник: <a href=\"mailto:kurylo.press@gmail.com?subject=Мапа повітряних тривог\">Дмитро Курило</a></div> "
-          "<div class=\"lnk\" style=\"font-size:50%;\"><a href=\"https://github.com/dkurylo/ukraine-raid-alarms-esp\" target=\"_blank\">GitHub</a></div>"
+          "<div class=\"lnk\" style=\"font-size:50%;\"><a id=\"fwup\" href=\"https://github.com/dkurylo/ukraine-raid-alarms-esp\" target=\"_blank\">GitHub</a></div>"
         "</div>"
       "</h2>";
 const char HTML_PAGE_END[] PROGMEM = "</div>"
@@ -2955,6 +2956,7 @@ void handleWebServerGet() {
 "<script>"
   "let devnm=\"" ) ) + String( deviceName ) + String( F("\";"
   "let ap=" ) ) + String( isApInitialized ) + String( F(";"
+  "let fw=" ) ) + String( getFirmwareVersion() ) + String( F(";"
   "document.addEventListener(\"DOMContentLoaded\",()=>{"
     "if(ap){"
       "setInterval(()=>{"
@@ -2966,6 +2968,11 @@ void handleWebServerGet() {
         "let scriptEl=document.createElement('script');"
         "scriptEl.textContent=data;"
         "document.querySelector('#map').appendChild(scriptEl);"
+      "}).catch(e=>{});"
+      "fetch(\"https://raw.githubusercontent.com/dkurylo/ukraine-raid-alarms-esp/refs/heads/main/fw_version.txt\").then(resp=>resp.text()).then(data=>{"
+        "if(fw!=data){"
+          "let up=document.getElementById(\"fwup\");if(up){up.classList.add(\"act\");up.textContent+=' ('+fw+' → '+data+')';}"
+        "}"
       "}).catch(e=>{});"
     "}"
     "if(devnm!=''){"
