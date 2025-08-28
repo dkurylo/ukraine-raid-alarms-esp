@@ -3690,11 +3690,13 @@ void handleWebServerGetMonitor() {
     "\t\"cpu\": {\n"
       "\t\t\"chip\": \"") ) +
         #ifdef ESP8266
-        String( F("ESP8266") )
-        #else //ESP32 or ESP32S2
-        String( F("ESP32 / ESP32S2") )
+        String( F("ESP8266") ) +
+        #elif defined(ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+        String( F("ESP32S2 / ESP32S3") ) +
+        #else
+        String( F("ESP32") ) +
         #endif
-      + String( F("\",\n"
+      String( F("\",\n"
       "\t\t\"cpu_freq\": ") ) + String( ESP.getCpuFreqMHz() ) + String( F(",\n"
       "\t\t\"flash_freq\": ") ) + String( ESP.getFlashChipSpeed() / 1000000 ) + String( F(",\n"
       "\t\t\"flash_mode\": \"") ) + flash_mode + String( F("\",\n"
