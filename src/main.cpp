@@ -26,7 +26,7 @@
 
 uint8_t EEPROM_FLASH_DATA_VERSION = 1; //change to next number when eeprom data format is changed. 255 is a reserved value: is set to 255 when: hard reset pin is at 3.3V (high); during factory reset procedure; when FW is loaded to a new device (EEPROM reads FF => 255)
 uint8_t eepromFlashDataVersion = EEPROM_FLASH_DATA_VERSION;
-const char* getFirmwareVersion() { const char* result = "1.00"; return result; }
+const char* getFirmwareVersion() { const char* result = "1.01"; return result; }
 
 #ifdef ESP8266
 #define BRIGHTNESS_INPUT_PIN A0
@@ -189,7 +189,14 @@ const std::vector<std::vector<const char*>> getVkRegions() {
 }
 std::vector<const char*> getVrRegionsSplitByRaions() {
   std::vector<const char*> result = {
+    "Рівненська область",
+    "Хмельницька область",
+    "Вінницька область",
+    "Київська область",
+    "Сумська область",
+    "Харківська область",
     "Дніпропетровська область",
+    "Полтавська область",
     "Черкаська область"
   };
   return result;
@@ -214,7 +221,12 @@ const std::vector<std::vector<const char*>> getUaRegions() {
     { "11" }, //Закарпатська область
     { "27" }, //Львівська область
     { "8" }, //Волинська область
-    { "5" }, //Рівненська область
+    { "5" //Рівненська область
+      , "110" //Вараський район
+      , "111" //Дубенський район
+      , "112" //Рівненський район
+      , "113" //Сарненський район
+    },
     { "3" //Хмельницька область
       , "134" //Хмельницький район
       , "135" //Кам’янець-Подільський район
@@ -230,7 +242,7 @@ const std::vector<std::vector<const char*>> getUaRegions() {
       , "35" //Жмеринський район
       , "36" //Вінницький район
       , "37" //Гайсинський район
-    }, //Вінницька область
+    },
     { "10" }, //Житомирська область
     { "14" //Київська область
       , "31" //м. Київ
@@ -242,7 +254,13 @@ const std::vector<std::vector<const char*>> getUaRegions() {
       , "78" //Бориспільський район
       , "79" //Броварський район
     },
-    { "25" }, //Чернігівська область
+    { "25" //Чернігівська область
+      , "140" //Чернігівський район
+      , "141" //Новгород-Сіверський район
+      , "142" //Ніжинський район
+      , "143" //Прилуцький район
+      , "144" //Корюківський район
+    },
     { "20"
       , "114" //Сумський район
       , "115" //Шосткинський район
@@ -294,12 +312,17 @@ const std::vector<std::vector<const char*>> getUaRegions() {
       , "152" //Черкаський район
       , "153" //Золотоніський район
     },
-    { "15" }, //Кіровоградська область
+    { "15" //Кіровоградська область
+      , "80" //Олександрійський район
+      , "81" //Кропивницький район
+      , "82" //Голованівський район
+      , "83" //Новоукраїнський район
+    },
     { "17" }, //Миколаївська область
     { "18" }, //Одеська область
     { "9999" }, //АР Крим
-    { "23", //Херсонська область
-      //, "129" //Бериславський район
+    { "23" //Херсонська область
+      , "129" //Бериславський район
     }
   };
   return result;
@@ -3622,6 +3645,26 @@ void handleWebServerGetPing() {
 }
 
 void handleWebServerGetMonitor() {
+  String flash_mode = "";
+  FlashMode_t flash_mode_enum = ESP.getFlashChipMode();
+  switch( flash_mode_enum ) {
+    case FlashMode_t::FM_QIO: flash_mode = String( F("QIO") ); break;
+    case FlashMode_t::FM_QOUT: flash_mode = String( F("QOUT") ); break;
+    case FlashMode_t::FM_DIO: flash_mode = String( F("DIO") ); break;
+    case FlashMode_t::FM_DOUT: flash_mode = String( F("DOUT") ); break;
+    #ifdef ESP8266
+
+    #elif defined(ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+    case FlashMode_t::FM_FAST_READ: flash_mode = String( F("FAST_READ") ); break;
+    case FlashMode_t::FM_SLOW_READ: flash_mode = String( F("SLOW_READ") ); break;
+    #else
+    case FlashMode_t::FM_FAST_READ: flash_mode = String( F("FAST_READ") ); break;
+    case FlashMode_t::FM_SLOW_READ: flash_mode = String( F("SLOW_READ") ); break;
+    #endif
+    default: flash_mode = String( F("Unknown") ); break;
+  }
+
+
   String content = String( F(""
   "{\n"
     "\t\"net\": {\n"
@@ -3652,7 +3695,9 @@ void handleWebServerGetMonitor() {
         String( F("ESP32 / ESP32S2") )
         #endif
       + String( F("\",\n"
-      "\t\t\"freq\": \"") ) + String( ESP.getCpuFreqMHz() ) + String( F("\",\n"
+      "\t\t\"cpu_freq\": ") ) + String( ESP.getCpuFreqMHz() ) + String( F(",\n"
+      "\t\t\"flash_freq\": ") ) + String( ESP.getFlashChipSpeed() / 1000000 ) + String( F(",\n"
+      "\t\t\"flash_mode\": \"") ) + flash_mode + String( F("\",\n"
       "\t\t\"millis\": ") ) + String( millis() ) + String( F("\n"
     "\t}\n"
   "}" ) );
