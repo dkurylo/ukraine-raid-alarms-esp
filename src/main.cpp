@@ -311,9 +311,6 @@ const std::vector<std::vector<const char*>> getUaRegions() {
       , "118" //Охтирський район
     },
     { "22" //Харківська область
-      , "1293" //м. Харків та Харківська територіальна громада
-      //, "1313" //Вовчанська територіальна громада
-      //, "1284" //Липецька територіальна громада
       , "122" //Чугуївський район
       , "123" //Куп’янський район
       , "124" //Харківський район
@@ -334,13 +331,11 @@ const std::vector<std::vector<const char*>> getUaRegions() {
       , "56" //Покровський район
     },
     { "12" //Запорізька область
-      , "564" //м. Запоріжжя та Запорізька територіальна громада
       , "145" //Пологівський район
       , "146" //Василівський район
       , "147" //Бердянський район
       , "148" //Мелітопольський район
       , "149" //Запорізький район
-      //, "561" //Біленьківська територіальна громада
     },
     { "9" //Дніпропетровська область
       , "42" //Кам’янський район
@@ -350,10 +345,6 @@ const std::vector<std::vector<const char*>> getUaRegions() {
       , "46" //Криворізький район
       , "47" //Нікопольський район
       , "48" //Синельниківський район
-      //, "349" //м. Марганець та Марганецька територіальна громада
-      //, "351" //м. Нікополь та Нікопольська територіальна громада
-      //, "353" //Покровська територіальна громада
-      //, "356" //Червоногригорівська територіальна громада
     },
     { "19" //Полтавська область
       , "106" //Лубенський район
@@ -2380,7 +2371,7 @@ bool uaRetrieveAndProcessRegionData() {
               regionIdRootValue = "";
             } else */if( currObjectLevel == 2 ) {
               if( isActiveAlertsObjectKeyFound ) {
-                if( regionIdValue != "" && /*regionIdRootValue == regionIdValue &&*/ ( regionTypeValue == "State" || regionTypeValue == "District" ) && alarmTypeValue == "AIR" ) {
+                if( regionIdValue != "" /*&& regionIdRootValue == regionIdValue*/ && ( regionTypeValue != "" /*&& ( regionTypeValue == "State" || regionTypeValue == "District" )*/ ) && alarmTypeValue != "" /*&& ( alarmTypeValue == "AIR" )*/ ) {
                   regionToAlarmStatus[ regionIdValue ] = true;
                 }
                 regionIdValue = "";
@@ -2875,7 +2866,7 @@ const char HTML_PAGE_START[] PROGMEM = "<!DOCTYPE html>"
       "h2{text-align:center;margin-top:0.3em;margin-bottom:1em;}"
       "h2,.fxh{color:#FFF;font-size:calc(var(--f)*1.2);}"
       ".fx{display:flex;flex-wrap:wrap;margin:auto;}"
-      ".fx.fxsect{border:1px solid #555;background-color:#444;margin-top:10px;border-radius:8px;box-shadow: 4px 4px 5px #222;overflow:hidden;}"
+      ".fx.fxsect{border:1px solid #555;background-color:#444;margin-top:0.5em;border-radius:8px;box-shadow: 4px 4px 5px #222;overflow:hidden;}"
       ".fxsect+.fxsect{/*border-top:none;*/}"
       ".fxh,.fxc{width:100%;}"
       ".fxh{padding:0.2em 0.5em;font-weight:bold;background-color:#606060;background:linear-gradient(#666,#555);border-bottom:0px solid #555;}"
@@ -3244,7 +3235,7 @@ void handleWebServerGet() {
         "</div>"
         "<div class=\"fx\">"
           "<span class=\"sub\"><a href=\"/update\">Оновити</a><span class=\"i\" title=\"Оновити прошивку\"></span></span>"
-          "<span class=\"sub\"><a href=\"/reset\">Відновити</a><span class=\"i\" title=\"Відновити до заводських налаштувань\"></span></span>"
+          "<span class=\"sub\"><a href=\"/reset\" onclick=\"return confirm('Ви впевнені, що хочете відновити?');\">Відновити</a><span class=\"i\" title=\"Відновити до заводських налаштувань\"></span></span>"
           "<span class=\"sub\"><a href=\"/reboot\">Перезавантажити</a></span>"
         "</div>"
       "</div>"
