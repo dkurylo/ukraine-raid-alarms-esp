@@ -404,7 +404,7 @@ void uaResetLastActionHash() {
 //- Does not return Crimea data
 //- Requires API_KEY to function
 //- does not seems to function anymore (as of 2025 onwards)
-const uint8_t AC_RAID_ALARM_SERVER = 3;
+/*const uint8_t AC_RAID_ALARM_SERVER = 3;
 const char* getAcRaidAlarmServerName() { const char* result = "tcp.alerts.com.ua"; return result; };
 const uint16_t getAcRaidAlarmServerPort() { const uint16_t result = 1024; return result; };
 const uint16_t DELAY_AC_WIFI_CONNECTION_CHECK = 15000; //wifi connection check frequency in ms
@@ -438,8 +438,7 @@ const std::vector<std::vector<const char*>> getAcRegions() {
     { "20" } //Херсонська область
   };
   return result;
-}
-const char* myStrings[] = {"apple", "banana", "cherry", "date"};
+}*/
 
 //"alerts.in.ua" - periodically issues get request to server and receives small JSON with full alarm data.
 //When choosing AI_RAID_ALARM_SERVER, config variables start with AI_
@@ -556,7 +555,6 @@ HTTPUpdateServer httpUpdater;
 #endif
 
 DNSServer dnsServer;
-WiFiClient wiFiClient; //used for AC; UA, VK and AI use WiFiClientSecure and init it separately
 Adafruit_NeoPixel strip(STRIP_LED_COUNT, STRIP_PIN, NEO_GRB + NEO_KHZ800);
 
 
@@ -733,8 +731,8 @@ const std::vector<std::vector<const char*>> getRegions() {
       return getVkRegions();
     case UA_RAID_ALARM_SERVER:
       return getUaRegions();
-    case AC_RAID_ALARM_SERVER:
-      return getAcRegions();
+    /*case AC_RAID_ALARM_SERVER:
+      return getAcRegions();*/
     case AI_RAID_ALARM_SERVER:
       return getAiRegions();
     default:
@@ -778,9 +776,9 @@ void initAlarmStatus() {
 }
 
 void initVariables() {
-  if( wiFiClient.connected() ) {
+  /*if( wiFiClient.connected() ) {
     wiFiClient.stop();
-  }
+  }*/
   initAlarmStatus();
 
   isFirstLoopRun = true;
@@ -942,9 +940,9 @@ String readRaidAlarmServerApiKey( int8_t serverName ) { //-1 populates the api k
     case UA_RAID_ALARM_SERVER:
       readEepromCharArray( eepromUaRaidAlarmApiKeyIndex, serverApiKey, sizeof(raidAlarmServerApiKey), true );
       break;
-    case AC_RAID_ALARM_SERVER:
+    /*case AC_RAID_ALARM_SERVER:
       readEepromCharArray( eepromAcRaidAlarmApiKeyIndex, serverApiKey, sizeof(raidAlarmServerApiKey), true );
-      break;
+      break;*/
     case AI_RAID_ALARM_SERVER:
       readEepromCharArray( eepromAiRaidAlarmApiKeyIndex, serverApiKey, sizeof(raidAlarmServerApiKey), true );
       break;
@@ -1351,6 +1349,7 @@ std::vector<uint8_t> getRequestedColor( std::vector<uint8_t> color, double brigh
   }
   return { r_req, g_req, b_req };
 }
+
 
 std::vector<uint8_t> previousAlarmStatusColorActive = { 0, 0, 0 };
 std::vector<uint8_t> previousAlarmStatusColorInactive = { 0, 0, 0 };
@@ -2579,6 +2578,8 @@ void uaRetrieveAndProcessServerData() {
 
 
 //functions for AC server
+/*WiFiClient wiFiClient; //used for AC; UA, VK and AI use WiFiClientSecure and init it separately
+
 unsigned long acWifiRaidAlarmDataLastProcessedMillis = millis();
 
 bool acProcessServerData( String payload ) {
@@ -2691,7 +2692,7 @@ bool acRetrieveAndProcessServerData() {
 
   if( payload.isEmpty() ) return false;
   return acProcessServerData( payload );
-}
+}*/
 
 //functions for AI server
 void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
@@ -2720,6 +2721,7 @@ void aiProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //proce
     setStripStatus( STRIP_STATUS_PROCESSING_ERROR );
   }
 }
+
 
 void aiRetrieveAndProcessServerData() {
   WiFiClientSecure wiFiClient;
@@ -3347,9 +3349,9 @@ void handleWebServerPost() {
   } else if( htmlPageServerOptionReceived == HTML_PAGE_RAID_SERVER_UA_NAME ) {
     raidAlarmServerReceived = UA_RAID_ALARM_SERVER;
     raidAlarmServerReceivedPopulated = true;
-  } else if( htmlPageServerOptionReceived == HTML_PAGE_RAID_SERVER_AC_NAME ) {
+  /*} else if( htmlPageServerOptionReceived == HTML_PAGE_RAID_SERVER_AC_NAME ) {
     raidAlarmServerReceived = AC_RAID_ALARM_SERVER;
-    raidAlarmServerReceivedPopulated = true;
+    raidAlarmServerReceivedPopulated = true;*/
   } else if( htmlPageServerOptionReceived == HTML_PAGE_RAID_SERVER_AI_NAME ) {
     raidAlarmServerReceived = AI_RAID_ALARM_SERVER;
     raidAlarmServerReceivedPopulated = true;
@@ -3485,14 +3487,14 @@ void handleWebServerPost() {
       isReconnectRequired = true;
     }
   }
-  if( htmlPageAcRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ) ) {
+  /*if( htmlPageAcRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( AC_RAID_ALARM_SERVER ) ) {
     Serial.println( F("AC server api key updated") );
     strcpy( raidAlarmServerApiKeyReceived, htmlPageAcRaidAlarmServerApiKeyReceived.c_str() );
     writeEepromCharArray( eepromAcRaidAlarmApiKeyIndex, raidAlarmServerApiKeyReceived, sizeof(raidAlarmServerApiKey) );
     if( raidAlarmServerReceived == AC_RAID_ALARM_SERVER ) {
       isReconnectRequired = true;
     }
-  }
+  }*/
   if( htmlPageAiRaidAlarmServerApiKeyReceived != readRaidAlarmServerApiKey( AI_RAID_ALARM_SERVER ) ) {
     Serial.println( F("AI server api key updated") );
     strcpy( raidAlarmServerApiKeyReceived, htmlPageAiRaidAlarmServerApiKeyReceived.c_str() );
@@ -3862,6 +3864,7 @@ void handleWebServerGetMap() {
       "#'+mapId+' img{position:absolute;display:block;}"
       "#'+mapId+' img.map{z-index:1;width:100%;top:0;left:0;}"
       "#'+mapId+' img.mapi{top:0;left:0;width:100%;height:100%;}"
+      "#'+mapId+' img.lazyload{display:none;}"
       /*"#'+mapId+' img.mapi{width:500%;height:500%;}"*/
       "#'+mapId+' img.mapG{filter:sepia(1) contrast(1.6) brightness(2.0) hue-rotate(77deg);}"
       "#'+mapId+' img.mapR{filter:sepia(1) contrast(2.2) brightness(4.5) hue-rotate(341deg);}"
@@ -3931,35 +3934,35 @@ void handleWebServerGetMap() {
   wifiWebServer.sendContent( content );
   content = "";
 
-  //3500
+  //3600
   content += String( F(""
       "<div>"
-        "<img class=\"map\" src=\"/map?f=map.svg\">"
-        "<img class=\"mapi map0\" src=\"/map?f=map0.gif\">"
-        "<img class=\"mapi map1\" src=\"/map?f=map1.gif\">"
-        "<img class=\"mapi map2\" src=\"/map?f=map2.gif\">"
-        "<img class=\"mapi map3\" src=\"/map?f=map3.gif\">"
-        "<img class=\"mapi map4\" src=\"/map?f=map4.gif\">"
-        "<img class=\"mapi map5\" src=\"/map?f=map5.gif\">"
-        "<img class=\"mapi map6\" src=\"/map?f=map6.gif\">"
-        "<img class=\"mapi map7\" src=\"/map?f=map7.gif\">"
-        "<img class=\"mapi map8\" src=\"/map?f=map8.gif\">"
-        "<img class=\"mapi map9\" src=\"/map?f=map9.gif\">"
-        "<img class=\"mapi map10\" src=\"/map?f=map10.gif\">"
-        "<img class=\"mapi map11\" src=\"/map?f=map11.gif\">"
-        "<img class=\"mapi map12\" src=\"/map?f=map12.gif\">"
-        "<img class=\"mapi map13\" src=\"/map?f=map13.gif\">"
-        "<img class=\"mapi map14\" src=\"/map?f=map14.gif\">"
-        "<img class=\"mapi map15\" src=\"/map?f=map15.gif\">"
-        "<img class=\"mapi map16\" src=\"/map?f=map16.gif\">"
-        "<img class=\"mapi map17\" src=\"/map?f=map17.gif\">"
-        "<img class=\"mapi map18\" src=\"/map?f=map18.gif\">"
-        "<img class=\"mapi map19\" src=\"/map?f=map19.gif\">"
-        "<img class=\"mapi map20\" src=\"/map?f=map20.gif\">"
-        "<img class=\"mapi map21\" src=\"/map?f=map21.gif\">"
-        "<img class=\"mapi map22\" src=\"/map?f=map22.gif\">"
-        "<img class=\"mapi map23\" src=\"/map?f=map23.gif\">"
-        "<img class=\"mapi map24\" src=\"/map?f=map24.gif\">"
+        "<img class=\"map lazyload\" data-src=\"/map?f=map.svg\">"
+        "<img class=\"mapi map0 lazyload\" data-src=\"/map?f=map0.gif\">"
+        "<img class=\"mapi map1 lazyload\" data-src=\"/map?f=map1.gif\">"
+        "<img class=\"mapi map2 lazyload\" data-src=\"/map?f=map2.gif\">"
+        "<img class=\"mapi map3 lazyload\" data-src=\"/map?f=map3.gif\">"
+        "<img class=\"mapi map4 lazyload\" data-src=\"/map?f=map4.gif\">"
+        "<img class=\"mapi map5 lazyload\" data-src=\"/map?f=map5.gif\">"
+        "<img class=\"mapi map6 lazyload\" data-src=\"/map?f=map6.gif\">"
+        "<img class=\"mapi map7 lazyload\" data-src=\"/map?f=map7.gif\">"
+        "<img class=\"mapi map8 lazyload\" data-src=\"/map?f=map8.gif\">"
+        "<img class=\"mapi map9 lazyload\" data-src=\"/map?f=map9.gif\">"
+        "<img class=\"mapi map10 lazyload\" data-src=\"/map?f=map10.gif\">"
+        "<img class=\"mapi map11 lazyload\" data-src=\"/map?f=map11.gif\">"
+        "<img class=\"mapi map12 lazyload\" data-src=\"/map?f=map12.gif\">"
+        "<img class=\"mapi map13 lazyload\" data-src=\"/map?f=map13.gif\">"
+        "<img class=\"mapi map14 lazyload\" data-src=\"/map?f=map14.gif\">"
+        "<img class=\"mapi map15 lazyload\" data-src=\"/map?f=map15.gif\">"
+        "<img class=\"mapi map16 lazyload\" data-src=\"/map?f=map16.gif\">"
+        "<img class=\"mapi map17 lazyload\" data-src=\"/map?f=map17.gif\">"
+        "<img class=\"mapi map18 lazyload\" data-src=\"/map?f=map18.gif\">"
+        "<img class=\"mapi map19 lazyload\" data-src=\"/map?f=map19.gif\">"
+        "<img class=\"mapi map20 lazyload\" data-src=\"/map?f=map20.gif\">"
+        "<img class=\"mapi map21 lazyload\" data-src=\"/map?f=map21.gif\">"
+        "<img class=\"mapi map22 lazyload\" data-src=\"/map?f=map22.gif\">"
+        "<img class=\"mapi map23 lazyload\" data-src=\"/map?f=map23.gif\">"
+        "<img class=\"mapi map24 lazyload\" data-src=\"/map?f=map24.gif\">"
       "</div>"
       /*"<div>"
         "<img class=\"map\" src=\"/map?f=map.svg\">"
@@ -3993,7 +3996,29 @@ void handleWebServerGetMap() {
     "setInterval(()=>{"
       "updateMap();"
     "},5000);"
+    "lazyLoad();"
     "updateMap();"
+  "}"
+  "function lazyLoad(){"
+    "const CONCURRENT_LIMIT=3;"
+    "for(let i=0;i<CONCURRENT_LIMIT;i++){"
+      "lazyLoadImg();"
+    "}"
+  "}"
+  "function lazyLoadImg(){"
+    "let imgs=[...document.querySelectorAll('.lazyload:not(.lazyloadproc)')];"
+    "if(!imgs.length)return;"
+    "let img=imgs.shift();"
+    "img.classList.add('lazyloadproc');"
+    "let src=img.getAttribute('data-src');"
+    "let loader=new Image();"
+    "loader.onload=()=>{"
+      "img.src=src;"
+      "img.classList.remove('lazyload');"
+      "img.classList.remove('lazyloadproc');"
+      "lazyLoadImg();"
+    "};"
+    "loader.src=src;"
   "}"
   "const aniTimers={};" //Key: image class, Value: Timer Id
   "function animateMap(mapCls){"
@@ -4223,7 +4248,7 @@ void loop() {
           previousMillisRaidAlarmCheck = millis();
         }
         break;
-      case AC_RAID_ALARM_SERVER:
+      /*case AC_RAID_ALARM_SERVER:
         acRetrieveAndProcessServerData();
         processAlertnessLevel();
         if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
@@ -4236,7 +4261,7 @@ void loop() {
           }
           previousMillisRaidAlarmCheck = millis();
         }
-        break;
+        break;*/
       case AI_RAID_ALARM_SERVER:
         if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
           forceRaidAlarmUpdate = false;
