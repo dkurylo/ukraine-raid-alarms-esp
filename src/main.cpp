@@ -184,22 +184,16 @@ const std::vector<std::vector<const char*>> getVkRegions() {
     { "Кіровоградська область" }, //Кіровоградська область
     { "Миколаївська область" }, //Миколаївська область
     { "Одеська область" }, //Одеська область
-    { "АР Крим", "Севастополь'" }, //АР Крим, Севастополь
+    { "АР Крим", "Севастополь" }, //АР Крим, Севастополь
     { "Херсонська область" } //Херсонська область
   };
   return result;
 }
-std::vector<const char*> getVrRegionsSplitByRaions() {
+std::vector<const char*> getVrRegionsNotSplitByRaions() {
   std::vector<const char*> result = {
-    "Рівненська область",
-    "Хмельницька область",
-    "Вінницька область",
-    "Київська область",
-    "Сумська область",
-    "Харківська область",
-    "Дніпропетровська область",
-    "Полтавська область",
-    "Черкаська область"
+    "м. Київ",
+    "АР Крим",
+    "Севастополь"
   };
   return result;
 }
@@ -1773,7 +1767,6 @@ bool processRaidAlarmStatus( uint8_t ledIndex, const char* regionName, bool isAl
 }
 
 
-
 //alarms data retrieval and processing
 //functions for VK server
 void vkProcessServerData( std::map<String, bool> regionToAlarmStatus ) { //processes all regions when full JSON is parsed
@@ -1877,7 +1870,7 @@ void vkRetrieveAndProcessServerData() {
       char responseCharBuffer[responseCharBufferLength];
       char responseCurrChar;
 
-      std::vector<const char*> regionsSplitByRaions = getVrRegionsSplitByRaions();
+      std::vector<const char*> regionsNotSplitByRaions = getVrRegionsNotSplitByRaions();
 
       WiFiClient *stream = httpClient.getStreamPtr();
       while( httpClient.connected() && ( actualResponseLength < reportedResponseLength || reportedResponseLength == 0 ) && ( !waitForResponseTimeoutDelay || ( calculateDiffMillis( httpRequestIssuedMillis, millis() ) <= responseTimeoutDelay ) ) && !endOfTransmission ) {
@@ -1914,10 +1907,10 @@ void vkRetrieveAndProcessServerData() {
             enabledObjectNameFound = false;
             currCharComparedIndex = 0;
             if( jsonRegion != "" && ( jsonStatus == jsonStatusTrue || jsonStatus == jsonStatusFalse ) ) {
-              bool isRegionSplitByRaion = false;
-              for( const char* regionSplitByRaions : regionsSplitByRaions ) {
-                if( jsonRegion == regionSplitByRaions ) {
-                  isRegionSplitByRaion = true;
+              bool isRegionSplitByRaion = true;
+              for( const char* regionNotSplitByRaions : regionsNotSplitByRaions ) {
+                if( jsonRegion == regionNotSplitByRaions ) {
+                  isRegionSplitByRaion = false;
                   break;
                 }
               }
@@ -2851,6 +2844,109 @@ void aiRetrieveAndProcessServerData() {
 
   if( regionToAlarmStatus.size() == 0 ) return;
   aiProcessServerData( regionToAlarmStatus );
+}
+
+
+enum AlertFetchState { ALERT_FETCH_IDLE, ALERT_FETCH_RUNNING, ALERT_FETCH_DATA_READY };
+AlertFetchState alertFetchStatus = ALERT_FETCH_IDLE;
+
+void alertnessLevelUpdateTask( void * parameter = nullptr ) {
+  alertFetchStatus = ALERT_FETCH_RUNNING;
+  switch( currentRaidAlarmServer ) {
+    case VK_RAID_ALARM_SERVER:
+      vkRetrieveAndProcessServerData();
+      alertFetchStatus = ALERT_FETCH_DATA_READY;
+      break;
+    case UA_RAID_ALARM_SERVER:
+      uaRetrieveAndProcessServerData();
+      alertFetchStatus = ALERT_FETCH_DATA_READY;
+      break;
+    /*case AC_RAID_ALARM_SERVER:
+      acRetrieveAndProcessServerData();
+      alertFetchStatus = ALERT_FETCH_DATA_READY;
+      break;*/
+    case AI_RAID_ALARM_SERVER:
+      aiRetrieveAndProcessServerData();
+      alertFetchStatus = ALERT_FETCH_DATA_READY;
+      break;
+    default:
+      alertFetchStatus = ALERT_FETCH_IDLE;
+      break;
+  }
+
+  #ifdef ESP8266
+    
+  #else //ESP32 or ESP32S2
+    vTaskDelete( NULL );
+  #endif
+}
+
+void triggerAlertnessLevelUpdate() {
+  if( alertFetchStatus != ALERT_FETCH_IDLE ) return;
+
+  #ifdef ESP8266
+    alertnessLevelUpdateTask();
+  #else //ESP32 or ESP32S2
+    // Spin up the background worker thread. 8192 bytes is a safe memory envelope for processing HTTP buffers and JSON maps
+    xTaskCreate(
+      alertnessLevelUpdateTask,
+      "AlertnessLevelUpdateTask",
+      8192,
+      NULL,
+      1,
+      NULL
+    );
+  #endif
+}
+
+void alertnessLevelRefreshLoopTick() {
+  if( !isApInitialized ) {
+    if( alertFetchStatus == ALERT_FETCH_DATA_READY ) {
+      alertFetchStatus = ALERT_FETCH_IDLE;
+      processAlertnessLevel();      
+    }
+
+    bool isActiveServerConfigured = true;
+    unsigned long activeServerDelay = 0;
+    switch( currentRaidAlarmServer ) {
+      case VK_RAID_ALARM_SERVER:
+        activeServerDelay = DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK;
+        break;
+      case UA_RAID_ALARM_SERVER:
+        activeServerDelay = DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK;
+        break;
+      /*case AC_RAID_ALARM_SERVER:
+        activeServerDelay = DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK;
+        break;*/
+      case AI_RAID_ALARM_SERVER:
+        activeServerDelay = DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK;
+        break;
+      default:
+        isActiveServerConfigured = false;
+        break;
+    }
+
+    if( isActiveServerConfigured ) {
+      bool isTimeForAlarmCheck = calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= activeServerDelay;
+      if( isFirstLoopRun || forceRaidAlarmUpdate || isTimeForAlarmCheck ) {
+        if( alertFetchStatus == ALERT_FETCH_IDLE ) {
+          forceRaidAlarmUpdate = false;
+          previousMillisRaidAlarmCheck = millis();
+          
+          if( WiFi.isConnected() ) {
+            triggerAlertnessLevelUpdate();
+          } else {
+            setRetrievalError();
+            initAlarmStatus();
+            resetAlertnessLevel();
+            connectToWiFi( false );
+          }
+        }
+      }
+    }
+  } else {
+    alertFetchStatus = ALERT_FETCH_IDLE;
+  }
 }
 
 
@@ -4216,71 +4312,7 @@ void loop() {
     connectToWiFi( false );
   }
 
-  if( !isApInitialized ) {
-    switch( currentRaidAlarmServer ) {
-      case VK_RAID_ALARM_SERVER:
-        if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_VK_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-          forceRaidAlarmUpdate = false;
-          if( WiFi.isConnected() ) {
-            vkRetrieveAndProcessServerData();
-            processAlertnessLevel();
-          } else {
-            setRetrievalError();
-            initAlarmStatus();
-            resetAlertnessLevel();
-            connectToWiFi( false );
-          }
-          previousMillisRaidAlarmCheck = millis();
-        }
-        break;
-      case UA_RAID_ALARM_SERVER:
-        if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_UA_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-          forceRaidAlarmUpdate = false;
-          if( WiFi.isConnected() ) {
-            uaRetrieveAndProcessServerData();
-            processAlertnessLevel();
-          } else {
-            setRetrievalError();
-            initAlarmStatus();
-            resetAlertnessLevel();
-            connectToWiFi( false );
-          }
-          previousMillisRaidAlarmCheck = millis();
-        }
-        break;
-      /*case AC_RAID_ALARM_SERVER:
-        acRetrieveAndProcessServerData();
-        processAlertnessLevel();
-        if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AC_WIFI_CONNECTION_CHECK ) ) {
-          forceRaidAlarmUpdate = false;
-          if( !WiFi.isConnected() ) {
-            setRetrievalError();
-            initAlarmStatus();
-            resetAlertnessLevel();
-            connectToWiFi( false );
-          }
-          previousMillisRaidAlarmCheck = millis();
-        }
-        break;*/
-      case AI_RAID_ALARM_SERVER:
-        if( isFirstLoopRun || forceRaidAlarmUpdate || ( calculateDiffMillis( previousMillisRaidAlarmCheck, millis() ) >= DELAY_AI_WIFI_CONNECTION_AND_RAID_ALARM_CHECK ) ) {
-          forceRaidAlarmUpdate = false;
-          if( WiFi.isConnected() ) {
-            aiRetrieveAndProcessServerData();
-            processAlertnessLevel();
-          } else {
-            setRetrievalError();
-            initAlarmStatus();
-            resetAlertnessLevel();
-            connectToWiFi( false );
-          }
-          previousMillisRaidAlarmCheck = millis();
-        }
-        break;
-      default:
-        break;
-    }
-  }
+  alertnessLevelRefreshLoopTick();
 
   if( isFirstLoopRun || ( calculateDiffMillis( previousMillisSensorBrightnessCheck, millis() ) >= DELAY_SENSOR_BRIGHTNESS_UPDATE_CHECK ) ) {
     calculateLedStripBrightness();
